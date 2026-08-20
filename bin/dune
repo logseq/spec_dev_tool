@@ -1,0 +1,4 @@
+(executable
+ (name main)
+ (public_name spec-dev-tool)
+ (libraries spec_dev_tool))

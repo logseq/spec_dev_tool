@@ -1,0 +1,3 @@
+- 使用OCaml5.1，创建一个CLI工具，用于辅助使用agent开发软件
+- MUST not use magic methods to cast types
+- `docs/agent_doc_format.md` 中描述了agent doc 的路径格式，内容格式，以及lifecycle，class分类

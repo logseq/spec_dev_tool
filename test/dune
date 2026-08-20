@@ -1,0 +1,9 @@
+(executable
+ (name cli_test)
+ (libraries unix))
+
+(rule
+ (alias runtest)
+ (deps ../bin/main.exe)
+ (action
+  (run ./cli_test.exe %{dep:../bin/main.exe})))
