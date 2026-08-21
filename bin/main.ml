@@ -2,8 +2,9 @@ let top_help =
   {|spec-dev-tool manages agent decision documents in docs/agent-guide/.
 
 AGENT WORKFLOW
-  Discover active decisions:
-    spec-dev-tool list
+  Discover decisions by lifecycle:
+    spec-dev-tool list-exploring
+    spec-dev-tool list-proposed
 
   Start a decision before implementation:
     spec-dev-tool create <class> <doc-name>
@@ -27,10 +28,14 @@ AGENT WORKFLOW
     spec-dev-tool check --all
 
 COMMANDS
-  create      Create an exploring agent document.
-  list        List recent agent documents.
-  check       Validate one or all agent documents.
-  transition  Move a document to its next lifecycle.
+  create            Create an exploring agent document.
+  list-exploring    List recent exploring documents.
+  list-proposed     List recent proposed documents.
+  list-implemented  List recent implemented documents.
+  list-rejected     List recent rejected documents.
+  list-archived     List recent archived documents.
+  check             Validate one or all agent documents.
+  transition        Move a document to its next lifecycle.
 
 Run 'spec-dev-tool <command> --help' for command details.
 
@@ -75,20 +80,18 @@ NEXT STEP
   Do not implement a document while its lifecycle is exploring.
 |}
 
-let list_help =
-  {|PURPOSE
-  List recent agent documents, newest first.
+let list_help lifecycle =
+  Printf.sprintf
+    {|PURPOSE
+  List recent %s agent documents, newest first.
 
 WHEN TO USE
-  Use before planning or implementing work to discover relevant decisions.
+  Use to discover recent decisions in the %s lifecycle.
 
 USAGE
-  spec-dev-tool list [<lifecycle> [<days>]]
+  spec-dev-tool list-%s [<days>]
 
 ARGUMENTS
-  <lifecycle> defaults to exploring and is one of:
-    exploring | proposed | implemented | rejected | archived
-
   <days> defaults to 30 and must be a positive base-10 integer.
 
 OUTPUT
@@ -98,6 +101,7 @@ OUTPUT
 NEXT STEP
   Read relevant documents before changing the repository.
 |}
+    lifecycle lifecycle lifecycle
 
 let check_help =
   {|PURPOSE
@@ -249,13 +253,10 @@ let list_documents lifecycle days =
           prerr_endline message;
           1)
 
-let list_with_arguments lifecycle days =
-  match
-    (Spec_dev_tool.Agent_doc.lifecycle_of_string lifecycle, days_of_string days)
-  with
-  | Ok lifecycle, Ok days -> list_documents lifecycle days
-  | Error message, Ok _ | Ok _, Error message | Error message, Error _ ->
-      usage_error (Command "list") message
+let list_with_days command lifecycle days =
+  match days_of_string days with
+  | Ok days -> list_documents lifecycle days
+  | Error message -> usage_error (Command command) message
 
 let target_lifecycle value =
   match Spec_dev_tool.Agent_doc.lifecycle_of_string value with
@@ -296,7 +297,11 @@ let begins_with_hyphen value = String.length value > 0 && value.[0] = '-'
 
 let command_help = function
   | "create" -> Some create_help
-  | "list" -> Some list_help
+  | "list-exploring" -> Some (list_help "exploring")
+  | "list-proposed" -> Some (list_help "proposed")
+  | "list-implemented" -> Some (list_help "implemented")
+  | "list-rejected" -> Some (list_help "rejected")
+  | "list-archived" -> Some (list_help "archived")
   | "check" -> Some check_help
   | "transition" -> Some transition_help
   | _ -> None
@@ -311,9 +316,23 @@ let run = function
   | [ _; "check"; "--all" ] -> check_all ()
   | [ _; "check"; path ] when not (begins_with_hyphen path) -> check path
   | [ _; "create"; document_class; topic ] -> create document_class topic
-  | [ _; "list" ] -> list_documents Spec_dev_tool.Agent_doc.Exploring 30
-  | [ _; "list"; lifecycle ] -> list_with_arguments lifecycle "30"
-  | [ _; "list"; lifecycle; days ] -> list_with_arguments lifecycle days
+  | [ _; "list-exploring" ] ->
+      list_documents Spec_dev_tool.Agent_doc.Exploring 30
+  | [ _; "list-exploring"; days ] ->
+      list_with_days "list-exploring" Spec_dev_tool.Agent_doc.Exploring days
+  | [ _; "list-proposed" ] -> list_documents Spec_dev_tool.Agent_doc.Proposed 30
+  | [ _; "list-proposed"; days ] ->
+      list_with_days "list-proposed" Spec_dev_tool.Agent_doc.Proposed days
+  | [ _; "list-implemented" ] ->
+      list_documents Spec_dev_tool.Agent_doc.Implemented 30
+  | [ _; "list-implemented"; days ] ->
+      list_with_days "list-implemented" Spec_dev_tool.Agent_doc.Implemented days
+  | [ _; "list-rejected" ] -> list_documents Spec_dev_tool.Agent_doc.Rejected 30
+  | [ _; "list-rejected"; days ] ->
+      list_with_days "list-rejected" Spec_dev_tool.Agent_doc.Rejected days
+  | [ _; "list-archived" ] -> list_documents Spec_dev_tool.Agent_doc.Archived 30
+  | [ _; "list-archived"; days ] ->
+      list_with_days "list-archived" Spec_dev_tool.Agent_doc.Archived days
   | [ _; "transition"; path; target ] -> transition path target None
   | [ _; "transition"; path; target; "--reason"; reason ] ->
       transition path target (Some reason)

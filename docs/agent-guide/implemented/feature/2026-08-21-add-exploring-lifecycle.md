@@ -10,8 +10,8 @@ or rejecting it before proposal review.
 ## Decision
 
 The CLI supports `exploring` as the lifecycle immediately before `proposed`.
-New documents are created in `docs/agent-guide/exploring/<class>/`, and `list`
-uses `exploring` as its default lifecycle.
+New documents are created in `docs/agent-guide/exploring/<class>/`, and
+`list-exploring` discovers recent documents in that lifecycle.
 
 The agent prepares and checks the exploring document, asks the user to answer
 every question, and waits. Until the user has answered every question, the
@@ -48,10 +48,10 @@ reason, validates the generated rejected document, and only then moves it.
 
 ## Command behavior
 
-`lifecycle_of_string`, path checking, `check --all`, explicit `list` selection,
-and help output recognize `exploring`. The transition command accepts
-`proposed` as a target only for an exploring source. A non-empty, single-line
-`--reason` remains required for both transitions to `rejected`.
+`lifecycle_of_string`, path checking, `check --all`, `list-exploring`, and help
+output recognize `exploring`. The transition command accepts `proposed` as a
+target only for an exploring source. A non-empty, single-line `--reason`
+remains required for both transitions to `rejected`.
 
 ## Alternatives considered
 

@@ -64,10 +64,10 @@ recursively scans `docs/agent-guide/` before checking any content.
 - If discovery fails because of a permission or I/O error, report the error
   and exit without checking a partial candidate set.
 
-This discovery is deliberately different from `list`. `list` selects one
-lifecycle and date window and returns only well-formed paths, while
-`check --all` must cover every lifecycle, every date, and malformed Markdown
-paths that need correction.
+This discovery is deliberately different from the `list-<lifecycle>` commands.
+Each lifecycle command selects one lifecycle and date window and returns only
+well-formed paths, while `check --all` must cover every lifecycle, every date,
+and malformed Markdown paths that need correction.
 
 ## Checking, output, and exit status
 
@@ -117,8 +117,8 @@ the requested repository-wide operation.
 
 ### Build check --all from list output
 
-The command could invoke the existing discovery behavior once per lifecycle.
-This was not selected because `list` applies a date window and excludes
+The command could invoke each lifecycle list operation. This was not selected
+because every `list-<lifecycle>` command applies a date window and excludes
 malformed agent-document paths. Both behaviors would allow `check --all` to
 miss files that it is expected to diagnose.
 

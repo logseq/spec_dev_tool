@@ -551,7 +551,7 @@ let () =
             (read_file (Filename.concat root path) = "existing content\n")
             "existing document was modified"));
 
-  test "list applies lifecycle and date-window defaults" (fun () ->
+  test "lifecycle list commands apply the date-window default" (fun () ->
       with_temp_directory (fun root ->
           let exploring_today =
             write_document root "exploring" "feature" (date_with_offset 0)
@@ -581,21 +581,20 @@ let () =
               "archived" "content\n"
           in
           let expected_default = [ exploring_today; exploring_boundary ] in
-          run ~cwd:root [ "list" ] |> fun result ->
+          run ~cwd:root [ "list-exploring" ] |> fun result ->
           check_lines result expected_default;
-          run ~cwd:root [ "list"; "exploring"; "30" ] |> fun result ->
+          run ~cwd:root [ "list-exploring"; "30" ] |> fun result ->
           check_lines result expected_default;
-          run ~cwd:root [ "list"; "proposed"; "30" ] |> fun result ->
+          run ~cwd:root [ "list-proposed"; "30" ] |> fun result ->
           check_lines result [ proposed ];
-          run ~cwd:root [ "list"; "implemented" ] |> fun result ->
+          run ~cwd:root [ "list-implemented" ] |> fun result ->
           check_lines result [ implemented ];
-          run ~cwd:root [ "list"; "rejected"; "7" ] |> fun result ->
+          run ~cwd:root [ "list-rejected"; "7" ] |> fun result ->
           check_lines result [ rejected ];
-          run ~cwd:root [ "list"; "archived"; "1" ] |> fun result ->
+          run ~cwd:root [ "list-archived"; "1" ] |> fun result ->
           check_lines result [ archived ]));
 
-  test "list sorts newest dates first and equal dates by complete path"
-    (fun () ->
+  test "lifecycle list commands sort by date and then complete path" (fun () ->
       with_temp_directory (fun root ->
           let newer_process =
             write_document root "proposed" "process" (date_with_offset 0) "zulu"
@@ -609,10 +608,10 @@ let () =
             write_document root "proposed" "architecture"
               (date_with_offset (-1)) "middle" "content\n"
           in
-          run ~cwd:root [ "list"; "proposed"; "2" ] |> fun result ->
+          run ~cwd:root [ "list-proposed"; "2" ] |> fun result ->
           check_lines result [ newer_bugfix; newer_process; older ]));
 
-  test "list ignores malformed paths, future dates, old dates, and symlinks"
+  test "lifecycle list commands ignore malformed and out-of-window paths"
     (fun () ->
       with_temp_directory (fun root ->
           let valid =
@@ -664,10 +663,10 @@ let () =
             (Filename.concat root
                (Printf.sprintf "docs/agent-guide/proposed/feature/%s-symlink.md"
                   today));
-          run ~cwd:root [ "list"; "proposed" ] |> fun result ->
+          run ~cwd:root [ "list-proposed" ] |> fun result ->
           check_lines result [ valid ]));
 
-  test "list uses filename dates instead of modification timestamps" (fun () ->
+  test "lifecycle list commands use filename dates" (fun () ->
       with_temp_directory (fun root ->
           let boundary =
             write_document root "proposed" "feature" (date_with_offset (-6))
@@ -681,20 +680,19 @@ let () =
             (Filename.concat root boundary)
             (Unix.time ()) (Unix.time ());
           Unix.utimes (Filename.concat root today) 0.0 0.0;
-          run ~cwd:root [ "list"; "proposed"; "7" ] |> fun result ->
+          run ~cwd:root [ "list-proposed"; "7" ] |> fun result ->
           check_lines result [ today; boundary ]));
 
-  test "list succeeds with no output when the lifecycle directory is missing"
-    (fun () ->
+  test "lifecycle list commands accept a missing lifecycle directory" (fun () ->
       with_temp_directory (fun root ->
-          let result = run ~cwd:root [ "list"; "implemented" ] in
+          let result = run ~cwd:root [ "list-implemented" ] in
           check_success result;
           check (result.stdout = "")
             (Printf.sprintf "expected empty stdout, got %S" result.stdout);
           check (result.stderr = "")
             (Printf.sprintf "expected empty stderr, got %S" result.stderr)));
 
-  test "list reports traversal errors without partial stdout" (fun () ->
+  test "lifecycle list commands report traversal errors atomically" (fun () ->
       with_temp_directory (fun root ->
           ignore
             (write_document root "proposed" "feature" (date_with_offset 0)
@@ -707,24 +705,33 @@ let () =
           Fun.protect
             ~finally:(fun () -> Unix.chmod blocked 0o755)
             (fun () ->
-              let result = run ~cwd:root [ "list"; "proposed" ] in
+              let result = run ~cwd:root [ "list-proposed" ] in
               check_failure result "cannot list documents";
               check (result.stdout = "")
                 (Printf.sprintf "expected empty stdout, got %S" result.stdout))));
 
-  test "list rejects invalid lifecycle, days, and argument counts" (fun () ->
+  test "lifecycle list commands reject invalid days and remove list" (fun () ->
       with_temp_directory (fun root ->
           [
-            [ "list"; "draft" ];
-            [ "list"; "7" ];
-            [ "list"; "proposed"; "0" ];
-            [ "list"; "proposed"; "-1" ];
-            [ "list"; "proposed"; "seven" ];
-            [ "list"; "proposed"; "7"; "extra" ];
+            [ "list-proposed"; "0" ];
+            [ "list-proposed"; "-1" ];
+            [ "list-proposed"; "seven" ];
+            [ "list-proposed"; "7"; "extra" ];
           ]
           |> List.iter (fun arguments ->
               run ~cwd:root arguments |> fun result ->
-              check_failure ~status:2 result "Try: spec-dev-tool list --help")));
+              check_failure ~status:2 result
+                "Try: spec-dev-tool list-proposed --help");
+          [
+            [ "list" ];
+            [ "list"; "--help" ];
+            [ "list"; "proposed" ];
+            [ "list-draft" ];
+            [ "list-draft"; "--help" ];
+          ]
+          |> List.iter (fun arguments ->
+              run ~cwd:root arguments |> fun result ->
+              check_failure ~status:2 result "Try: spec-dev-tool --help")));
 
   test
     "check --all checks every Markdown candidate and sorts both output streams"
@@ -1224,8 +1231,8 @@ let () =
           check_path_content root created
             (read_file (Filename.concat root created));
           check_path_absent nested "docs";
-          let nested_list = run ~cwd:nested [ "list" ] in
-          let root_list = run ~cwd:root [ "list" ] in
+          let nested_list = run ~cwd:nested [ "list-exploring" ] in
+          let root_list = run ~cwd:root [ "list-exploring" ] in
           check_success nested_list;
           check
             (nested_list.stdout = root_list.stdout
@@ -1282,7 +1289,7 @@ let () =
           in
           [
             [ "create"; "feature"; "must-not-exist" ];
-            [ "list" ];
+            [ "list-exploring" ];
             [ "check"; source ];
             [ "check"; "--all" ];
             [ "transition"; source; "implemented" ];
@@ -1345,6 +1352,11 @@ let () =
             "exploring | proposed | implemented | rejected | archived";
             "Ask the user to answer every question in the document.";
             "Do not implement a document while its lifecycle is exploring.";
+            "list-exploring";
+            "list-proposed";
+            "list-implemented";
+            "list-rejected";
+            "list-archived";
             "EXIT STATUS";
             "0  Command completed successfully.";
             "1  Document validation or filesystem operation failed.";
@@ -1374,13 +1386,36 @@ let () =
                   "<doc-name> must be lowercase kebab-case.";
                   "spec-dev-tool check <created-path>";
                 ] );
-              ( "list",
+              ( "list-exploring",
                 [
-                  "List recent agent documents, newest first.";
-                  "spec-dev-tool list [<lifecycle> [<days>]]";
-                  "<lifecycle> defaults to exploring";
+                  "List recent exploring agent documents, newest first.";
+                  "spec-dev-tool list-exploring [<days>]";
                   "<days> defaults to 30";
                   "An empty result produces no output and is successful.";
+                ] );
+              ( "list-proposed",
+                [
+                  "List recent proposed agent documents, newest first.";
+                  "spec-dev-tool list-proposed [<days>]";
+                  "<days> defaults to 30";
+                ] );
+              ( "list-implemented",
+                [
+                  "List recent implemented agent documents, newest first.";
+                  "spec-dev-tool list-implemented [<days>]";
+                  "<days> defaults to 30";
+                ] );
+              ( "list-rejected",
+                [
+                  "List recent rejected agent documents, newest first.";
+                  "spec-dev-tool list-rejected [<days>]";
+                  "<days> defaults to 30";
+                ] );
+              ( "list-archived",
+                [
+                  "List recent archived agent documents, newest first.";
+                  "spec-dev-tool list-archived [<days>]";
+                  "<days> defaults to 30";
                 ] );
               ( "check",
                 [
@@ -1451,7 +1486,7 @@ let () =
             [
               ([ "create"; "feature" ], "create");
               ([ "create"; "refactor"; "decision" ], "create");
-              ([ "list"; "proposed"; "0" ], "list");
+              ([ "list-proposed"; "0" ], "list-proposed");
               ([ "check" ], "check");
               ([ "check"; "--all"; "extra" ], "check");
               ([ "transition"; "path" ], "transition");

@@ -66,8 +66,9 @@ The top-level help is workflow-first rather than a bare syntax listing:
 spec-dev-tool manages agent decision documents in docs/agent-guide/.
 
 AGENT WORKFLOW
-  Discover active decisions:
-    spec-dev-tool list
+  Discover decisions by lifecycle:
+    spec-dev-tool list-exploring
+    spec-dev-tool list-proposed
 
   Start a decision before implementation:
     spec-dev-tool create <class> <doc-name>
@@ -91,10 +92,14 @@ AGENT WORKFLOW
     spec-dev-tool check --all
 
 COMMANDS
-  create      Create an exploring agent document.
-  list        List recent agent documents.
-  check       Validate one or all agent documents.
-  transition  Move a document to its next lifecycle.
+  create            Create an exploring agent document.
+  list-exploring    List recent exploring documents.
+  list-proposed     List recent proposed documents.
+  list-implemented  List recent implemented documents.
+  list-rejected     List recent rejected documents.
+  list-archived     List recent archived documents.
+  check             Validate one or all agent documents.
+  transition        Move a document to its next lifecycle.
 
 Run 'spec-dev-tool <command> --help' for command details.
 
@@ -158,22 +163,22 @@ NEXT STEP
   Do not implement a document while its lifecycle is exploring.
 ```
 
-### List help
+### Lifecycle list help
+
+Each lifecycle command has its own help page. For example,
+`list-exploring --help` prints:
 
 ```text
 PURPOSE
-  List recent agent documents, newest first.
+  List recent exploring agent documents, newest first.
 
 WHEN TO USE
-  Use before planning or implementing work to discover relevant decisions.
+  Use to discover recent decisions in the exploring lifecycle.
 
 USAGE
-  spec-dev-tool list [<lifecycle> [<days>]]
+  spec-dev-tool list-exploring [<days>]
 
 ARGUMENTS
-  <lifecycle> defaults to exploring and is one of:
-    exploring | proposed | implemented | rejected | archived
-
   <days> defaults to 30 and must be a positive base-10 integer.
 
 OUTPUT
@@ -183,6 +188,10 @@ OUTPUT
 NEXT STEP
   Read relevant documents before changing the repository.
 ```
+
+`list-proposed`, `list-implemented`, `list-rejected`, and `list-archived`
+replace `exploring` with their fixed lifecycle in the purpose, when-to-use, and
+usage lines. The obsolete `list` command has no help page.
 
 ### Check help
 
@@ -330,11 +339,12 @@ the behavior and exit-status mapping visible in the small current command set.
 ## Consequences
 
 `spec-dev-tool --help` and `spec-dev-tool -h` print workflow-first top-level
-help. Both help flags also work for `create`, `list`, `check`, and `transition`.
-Each command page presents purpose, usage, arguments or constraints, output,
-and next-step guidance in a stable order. The top-level page lists every class,
-lifecycle, and exit status; list help pins the `exploring` and `30` defaults;
-and transition help documents exactly the five supported lifecycle edges.
+help. Both help flags also work for `create`, all five lifecycle list commands,
+`check`, and `transition`. Each command page presents purpose, usage, arguments
+or constraints, output, and next-step guidance in a stable order. The top-level
+page lists every class, lifecycle, and exit status; lifecycle list help pins the
+selected lifecycle and the `30`-day default; and transition help documents
+exactly the five supported lifecycle edges.
 The workflow requires user answers before either transition from `exploring`
 and prohibits implementation while a document remains in that lifecycle.
 

@@ -65,7 +65,7 @@ machine-specific absolute project path.
 All affected operations use the discovered root explicitly:
 
 - `create` writes the new exploration below the root.
-- `list` discovers documents below the root.
+- Each `list-<lifecycle>` command discovers documents below the root.
 - `check <doc-path>` reads the root-relative document path.
 - `check --all` discovers and validates documents below the root.
 - `transition` reads, writes, and removes documents below the root.
@@ -111,11 +111,11 @@ worktree.
 ## Consequences
 
 Every repository command has identical path semantics at the worktree root and
-in nested directories. `create` writes only below the discovered root; `list`
-and `check --all` discover the root document tree; `check <doc-path>` reads a
-canonical root-relative path; and `transition` moves documents between
-lifecycle directories below the root. Successful commands continue to print
-canonical project-relative paths.
+in nested directories. `create` writes only below the discovered root;
+`list-<lifecycle>` commands and `check --all` discover the root document tree;
+`check <doc-path>` reads a canonical root-relative path; and `transition` moves
+documents between lifecycle directories below the root. Successful commands
+continue to print canonical project-relative paths.
 
 Commands that access documents fail with status `1` before filesystem access
 when Git cannot resolve a worktree root. Help remains independent of Git and
