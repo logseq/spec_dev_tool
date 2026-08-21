@@ -135,6 +135,10 @@ let proposed_content ?(technical = "") () =
   ^ "## Acceptance criteria\n\n- The command returns one eligible issue.\n\n"
   ^ "## Risks\n\n- Repository APIs may rate limit requests.\n"
 
+let exploring_content ?(technical = "") () =
+  proposed_content ~technical ()
+  ^ "\n## Questions\n\n- Which repository API provides eligible issues?\n"
+
 let implemented_content =
   "# Issue Picker\n\n"
   ^ "## Problem\n\nAgents need a reliable way to pick an issue.\n\n"
@@ -241,6 +245,7 @@ let () =
   test "check accepts every lifecycle with its required structure" (fun () ->
       with_temp_directory (fun root ->
           [
+            ("exploring", exploring_content ());
             ("proposed", proposed_content ());
             ("implemented", implemented_content);
             ("rejected", rejected_content);
@@ -257,6 +262,36 @@ let () =
               check
                 (contains result.stdout "Valid agent document")
                 "expected check confirmation")));
+
+  test "check requires a non-empty final Questions section for exploring docs"
+    (fun () ->
+      with_temp_directory (fun root ->
+          let without_questions = proposed_content () in
+          let questions_before_risks =
+            "# Title\n\n## Problem\n\nProblem.\n\n## Proposal\n\nProposal.\n\n"
+            ^ "## Alternatives considered\n\n### Other\n\nOther.\n\n"
+            ^ "## Acceptance criteria\n\n- Done.\n\n"
+            ^ "## Questions\n\n- What remains?\n\n## Risks\n\n- Risk.\n"
+          in
+          let empty_questions = proposed_content () ^ "\n## Questions\n" in
+          [
+            ( "missing-questions",
+              without_questions,
+              "missing required section: Questions" );
+            ( "questions-not-final",
+              questions_before_risks,
+              "Questions must be the final level-two section" );
+            ( "empty-questions",
+              empty_questions,
+              "section has no content: Questions" );
+          ]
+          |> List.iter (fun (topic, content, message) ->
+              let path =
+                Printf.sprintf
+                  "docs/agent-guide/exploring/feature/2026-08-20-%s.md" topic
+              in
+              check_file root path content |> fun result ->
+              check_failure result message)));
 
   test "check accepts every document class and rejects absolute paths"
     (fun () ->
@@ -429,7 +464,7 @@ let () =
               check_file root path content |> fun result ->
               check_failure result message)));
 
-  test "create builds and validates a proposed document for every class"
+  test "create builds and validates an exploring document for every class"
     (fun () ->
       with_temp_directory (fun root ->
           [
@@ -445,7 +480,7 @@ let () =
               let result = run ~cwd:root [ "create"; document_class; topic ] in
               check_success result;
               let relative_path =
-                Printf.sprintf "docs/agent-guide/proposed/%s/%s-%s.md"
+                Printf.sprintf "docs/agent-guide/exploring/%s/%s-%s.md"
                   document_class (current_date ()) topic
               in
               check
@@ -456,14 +491,14 @@ let () =
                 "expected created path on stdout";
               run ~cwd:root [ "check"; relative_path ] |> check_success)));
 
-  test "create writes the documented proposed outline and derives its title"
+  test "create writes the documented exploring outline and derives its title"
     (fun () ->
       with_temp_directory (fun root ->
           run ~cwd:root [ "create"; "feature"; "api-client" ] |> check_success;
           let path =
             Filename.concat root
               (Printf.sprintf
-                 "docs/agent-guide/proposed/feature/%s-api-client.md"
+                 "docs/agent-guide/exploring/feature/%s-api-client.md"
                  (current_date ()))
           in
           let content = read_file path in
@@ -477,9 +512,13 @@ let () =
             "### Alternative";
             "## Acceptance criteria";
             "## Risks";
+            "## Questions";
           ]
           |> List.iter (fun heading ->
-              check (contains content heading) ("missing heading: " ^ heading))));
+              check (contains content heading) ("missing heading: " ^ heading));
+          check
+            (String.ends_with ~suffix:"answer before proposing.\n" content)
+            "expected Questions to be the final section"));
 
   test "create rejects invalid classes and topic names" (fun () ->
       with_temp_directory (fun root ->
@@ -502,7 +541,7 @@ let () =
       with_temp_directory (fun root ->
           let path =
             Printf.sprintf
-              "docs/agent-guide/proposed/feature/%s-issue-picker.md"
+              "docs/agent-guide/exploring/feature/%s-issue-picker.md"
               (current_date ())
           in
           write_file (Filename.concat root path) "existing content\n";
@@ -514,17 +553,21 @@ let () =
 
   test "list applies lifecycle and date-window defaults" (fun () ->
       with_temp_directory (fun root ->
-          let proposed_today =
-            write_document root "proposed" "feature" (date_with_offset 0)
+          let exploring_today =
+            write_document root "exploring" "feature" (date_with_offset 0)
               "today" "invalid content is still discoverable\n"
           in
-          let proposed_boundary =
-            write_document root "proposed" "bugfix" (date_with_offset (-29))
+          let exploring_boundary =
+            write_document root "exploring" "bugfix" (date_with_offset (-29))
               "boundary" "content\n"
           in
           ignore
-            (write_document root "proposed" "feature" (date_with_offset (-30))
+            (write_document root "exploring" "feature" (date_with_offset (-30))
                "too-old" "content\n");
+          let proposed =
+            write_document root "proposed" "feature" (date_with_offset 0)
+              "proposed" "content\n"
+          in
           let implemented =
             write_document root "implemented" "process" (date_with_offset 0)
               "implemented" "content\n"
@@ -537,11 +580,13 @@ let () =
             write_document root "archived" "architecture" (date_with_offset 0)
               "archived" "content\n"
           in
-          let expected_default = [ proposed_today; proposed_boundary ] in
+          let expected_default = [ exploring_today; exploring_boundary ] in
           run ~cwd:root [ "list" ] |> fun result ->
           check_lines result expected_default;
-          run ~cwd:root [ "list"; "proposed"; "30" ] |> fun result ->
+          run ~cwd:root [ "list"; "exploring"; "30" ] |> fun result ->
           check_lines result expected_default;
+          run ~cwd:root [ "list"; "proposed"; "30" ] |> fun result ->
+          check_lines result [ proposed ];
           run ~cwd:root [ "list"; "implemented" ] |> fun result ->
           check_lines result [ implemented ];
           run ~cwd:root [ "list"; "rejected"; "7" ] |> fun result ->
@@ -619,7 +664,8 @@ let () =
             (Filename.concat root
                (Printf.sprintf "docs/agent-guide/proposed/feature/%s-symlink.md"
                   today));
-          run ~cwd:root [ "list" ] |> fun result -> check_lines result [ valid ]));
+          run ~cwd:root [ "list"; "proposed" ] |> fun result ->
+          check_lines result [ valid ]));
 
   test "list uses filename dates instead of modification timestamps" (fun () ->
       with_temp_directory (fun root ->
@@ -661,7 +707,7 @@ let () =
           Fun.protect
             ~finally:(fun () -> Unix.chmod blocked 0o755)
             (fun () ->
-              let result = run ~cwd:root [ "list" ] in
+              let result = run ~cwd:root [ "list"; "proposed" ] in
               check_failure result "cannot list documents";
               check (result.stdout = "")
                 (Printf.sprintf "expected empty stdout, got %S" result.stdout))));
@@ -686,6 +732,8 @@ let () =
       with_temp_directory (fun root ->
           let valid_paths =
             [
+              write_document root "exploring" "feature" "1999-01-01" "exploring"
+                (exploring_content ());
               write_document root "proposed" "feature" "1999-01-01" "old"
                 (proposed_content ());
               write_document root "implemented" "process" "2026-08-20"
@@ -817,6 +865,21 @@ let () =
   test "transition moves target-valid documents across direct lifecycle edges"
     (fun () ->
       with_temp_directory (fun root ->
+          let exploring_source =
+            write_document root "exploring" "feature" "2026-08-20"
+              "proposed-transition" (proposed_content ())
+          in
+          let proposed_destination =
+            document_path "proposed" "feature" "2026-08-20"
+              "proposed-transition"
+          in
+          let proposed_result =
+            run ~cwd:root [ "transition"; exploring_source; "proposed" ]
+          in
+          check_success proposed_result;
+          check_path_absent root exploring_source;
+          check_path_content root proposed_destination (proposed_content ());
+          run ~cwd:root [ "check"; proposed_destination ] |> check_success;
           let source =
             write_document root "proposed" "feature" "2026-08-20"
               "implemented-transition" implemented_content
@@ -909,6 +972,35 @@ let () =
             "expected the trimmed reason verbatim";
           run ~cwd:root [ "check"; destination ] |> check_success));
 
+  test
+    "transition converts a valid exploring document to valid rejected content"
+    (fun () ->
+      with_temp_directory (fun root ->
+          let source =
+            write_document root "exploring" "feature" "2026-08-20"
+              "rejected-exploration" (exploring_content ())
+          in
+          let destination =
+            document_path "rejected" "feature" "2026-08-20"
+              "rejected-exploration"
+          in
+          let result =
+            run ~cwd:root
+              [
+                "transition";
+                source;
+                "rejected";
+                "--reason";
+                "The open question cannot be resolved.";
+              ]
+          in
+          check_success result;
+          check_path_absent root source;
+          let content = read_file (Filename.concat root destination) in
+          check (contains content "## Questions") "expected questions preserved";
+          check_before content "## Questions" "## Rejection reason";
+          run ~cwd:root [ "check"; destination ] |> check_success));
+
   test "transition rejects invalid reason usage without filesystem changes"
     (fun () ->
       with_temp_directory (fun root ->
@@ -943,6 +1035,11 @@ let () =
                 "unsupported-archive",
                 proposed_content (),
                 "archived" );
+              ( "exploring",
+                "feature",
+                "unsupported-implemented",
+                exploring_content (),
+                "implemented" );
               ( "implemented",
                 "process",
                 "unsupported-reject",
@@ -1121,7 +1218,7 @@ let () =
           check_success create_result;
           let created =
             Printf.sprintf
-              "docs/agent-guide/proposed/feature/%s-nested-command.md"
+              "docs/agent-guide/exploring/feature/%s-nested-command.md"
               (current_date ())
           in
           check_path_content root created
@@ -1146,19 +1243,30 @@ let () =
           check
             (nested_check_all.stdout = root_check_all.stdout)
             "nested and root whole-repository check output differ";
-          write_file (Filename.concat root created) implemented_content;
+          write_file (Filename.concat root created) (proposed_content ());
+          let proposed =
+            document_path "proposed" "feature" (current_date ())
+              "nested-command"
+          in
+          let propose_result =
+            run ~cwd:nested [ "transition"; created; "proposed" ]
+          in
+          check_success propose_result;
+          check_path_absent root created;
+          check_path_content root proposed (proposed_content ());
+          write_file (Filename.concat root proposed) implemented_content;
           let destination =
             document_path "implemented" "feature" (current_date ())
               "nested-command"
           in
           let transition_result =
-            run ~cwd:nested [ "transition"; created; "implemented" ]
+            run ~cwd:nested [ "transition"; proposed; "implemented" ]
           in
           check_success transition_result;
           check
             (transition_result.stdout = destination ^ "\n")
             "nested transition did not print the canonical destination";
-          check_path_absent root created;
+          check_path_absent root proposed;
           check_path_content root destination implemented_content;
           check_path_absent nested "docs"));
 
@@ -1234,7 +1342,9 @@ let () =
             "VALUES";
             "simplification | bugfix | feature | testing | architecture | \
              process";
-            "proposed | implemented | rejected | archived";
+            "exploring | proposed | implemented | rejected | archived";
+            "Ask the user to answer every question in the document.";
+            "Do not implement a document while its lifecycle is exploring.";
             "EXIT STATUS";
             "0  Command completed successfully.";
             "1  Document validation or filesystem operation failed.";
@@ -1245,14 +1355,22 @@ let () =
                 (contains long_top.stdout text)
                 ("missing top-level help: " ^ text));
           check_before long_top.stdout "AGENT WORKFLOW" "COMMANDS";
+          check_before long_top.stdout "spec-dev-tool create <class> <doc-name>"
+            "Ask the user to answer every question in the document.";
+          check_before long_top.stdout
+            "Do not implement a document while its lifecycle is exploring."
+            "spec-dev-tool transition <doc-path> proposed";
           check_before long_top.stdout "COMMANDS" "VALUES";
           check_before long_top.stdout "VALUES" "EXIT STATUS";
           let cases =
             [
               ( "create",
                 [
-                  "Create a proposed agent document";
+                  "Create an exploring agent document";
                   "spec-dev-tool create <class> <doc-name>";
+                  "Ask the user to answer every question in the document.";
+                  "Do not implement a document while its lifecycle is \
+                   exploring.";
                   "<doc-name> must be lowercase kebab-case.";
                   "spec-dev-tool check <created-path>";
                 ] );
@@ -1260,7 +1378,7 @@ let () =
                 [
                   "List recent agent documents, newest first.";
                   "spec-dev-tool list [<lifecycle> [<days>]]";
-                  "<lifecycle> defaults to proposed";
+                  "<lifecycle> defaults to exploring";
                   "<days> defaults to 30";
                   "An empty result produces no output and is successful.";
                 ] );
@@ -1275,6 +1393,12 @@ let () =
               ( "transition",
                 [
                   "Record a decision outcome";
+                  "exploring   -> proposed";
+                  "exploring   -> rejected";
+                  "An exploring document may transition only after the user \
+                   has answered every question.";
+                  "Do not implement a document while its lifecycle is \
+                   exploring.";
                   "proposed    -> implemented";
                   "proposed    -> rejected";
                   "implemented -> archived";

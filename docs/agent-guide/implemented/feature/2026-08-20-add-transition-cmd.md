@@ -20,30 +20,32 @@ The CLI provides a `transition` command that validates and moves an existing
 agent document to a target lifecycle:
 
 ```text
+spec-dev-tool transition <doc-path> proposed
 spec-dev-tool transition <doc-path> implemented
 spec-dev-tool transition <doc-path> rejected --reason "<sentence>"
 spec-dev-tool transition <doc-path> archived
 ```
 
 The command does not infer transition prose. The agent is responsible for
-changing proposal language into an implemented decision because that work
-requires semantic judgment. For a rejection, the caller supplies the semantic
-content as a required one-sentence reason, and the command performs only the
-deterministic structural conversion. The command otherwise enforces lifecycle
-and filesystem invariants.
+resolving exploration questions before a proposal and for changing proposal
+language into an implemented decision because that work requires semantic
+judgment. For a rejection, the caller supplies the semantic content as a
+required one-sentence reason, and the command performs only the deterministic
+structural conversion. The command otherwise enforces lifecycle and filesystem
+invariants.
 
 ## Command behavior
 
 `<doc-path>` must be a project-relative agent document path in the form defined
-by `docs/agent_doc_format.md`. `<target-lifecycle>` must be `implemented`,
-`rejected`, or `archived`.
+by `docs/agent_doc_format.md`. `<target-lifecycle>` must be `proposed`,
+`implemented`, `rejected`, or `archived`.
 
-A `proposed -> rejected` transition requires
-`--reason "<sentence>"`. The reason must be one non-empty, single-line command
-argument after leading and trailing whitespace is removed. Callers must quote a
-reason that contains spaces. The command writes the trimmed reason verbatim as
-the body of `## Rejection reason`; it does not generate, complete, or summarize
-the reason. The CLI treats the single-line value as one sentence rather than
+A transition from `exploring` or `proposed` to `rejected` requires `--reason
+"<sentence>"`. The reason must be one non-empty, single-line command argument
+after leading and trailing whitespace is removed. Callers must quote a reason
+that contains spaces. The command writes the trimmed reason verbatim as the
+body of `## Rejection reason`; it does not generate, complete, or summarize the
+reason. The CLI treats the single-line value as one sentence rather than
 attempting to validate natural-language grammar.
 
 `--reason` is invalid for every other lifecycle edge. A missing, empty, or
@@ -52,10 +54,18 @@ multi-line rejection reason is a usage error.
 The command supports exactly these transitions:
 
 ```text
+exploring -> proposed
+exploring -> rejected
 proposed -> implemented
 proposed -> rejected
 implemented -> archived
 ```
+
+The agent workflow permits either transition from `exploring` only after the
+user has answered every question in the source document. The agent must not
+invent the answers, transition before the answers arrive, or implement a
+decision while its document remains `exploring`. The CLI documents this policy
+but cannot independently verify a prior conversational interaction.
 
 The source lifecycle is derived from `<doc-path>`. The destination retains the
 source class, filename date, and topic:
@@ -90,6 +100,12 @@ exit with status `1`.
 
 ## Content preparation workflow
 
+Before an `exploring -> proposed` transition, the user answers every open
+question. The agent incorporates those answers and rewrites the document to the
+proposed-document format. As with the implemented transition, target validation
+permits the source document to be temporarily invalid for its current lifecycle
+during this rewrite.
+
 Before a `proposed -> implemented` transition, an agent rewrites the document
 in place to replace the proposal with the decision that was actually
 implemented and updates the required sections to the implemented-document
@@ -101,14 +117,16 @@ while this rewrite is in progress. `transition` resolves that temporary state
 by validating against the requested target lifecycle and moving the valid
 result into the matching directory.
 
-For `proposed -> rejected`, the source must still be a valid proposed document.
-The command converts it deterministically by preserving its title and every
-section, moving `Acceptance criteria` and `Risks` before
-`Alternatives considered`, and appending `Rejection reason` with the supplied
-reason. Moving the proposal-only sections preserves their historical content
-while placing all optional material before the required rejection sections.
-The generated document must pass rejected-document validation before the
-filesystem is changed.
+For `exploring -> rejected`, the user must first answer every question. For
+both `exploring -> rejected` and `proposed -> rejected`, the source must still
+be valid for its current lifecycle. The command converts it deterministically
+by preserving its title and every section, moving `Acceptance criteria` and
+`Risks` before `Alternatives considered`, and appending `Rejection reason` with
+the supplied reason. An exploring document's `Questions` section and recorded
+answers are preserved as historical context. Moving the proposal-only sections
+preserves their historical content while placing all optional material before
+the required rejection sections. The generated document must pass
+rejected-document validation before the filesystem is changed.
 
 ## Alternatives considered
 

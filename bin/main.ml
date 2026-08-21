@@ -11,7 +11,12 @@ AGENT WORKFLOW
   Validate document edits:
     spec-dev-tool check <doc-path>
 
+  Wait for required user input:
+    Ask the user to answer every question in the document.
+    Do not implement a document while its lifecycle is exploring.
+
   Record a decision outcome:
+    spec-dev-tool transition <doc-path> proposed
     spec-dev-tool transition <doc-path> implemented
     spec-dev-tool transition <doc-path> rejected --reason "<sentence>"
 
@@ -22,7 +27,7 @@ AGENT WORKFLOW
     spec-dev-tool check --all
 
 COMMANDS
-  create      Create a proposed agent document.
+  create      Create an exploring agent document.
   list        List recent agent documents.
   check       Validate one or all agent documents.
   transition  Move a document to its next lifecycle.
@@ -34,7 +39,7 @@ VALUES
     simplification | bugfix | feature | testing | architecture | process
 
   lifecycle:
-    proposed | implemented | rejected | archived
+    exploring | proposed | implemented | rejected | archived
 
 EXIT STATUS
   0  Command completed successfully.
@@ -44,11 +49,11 @@ EXIT STATUS
 
 let create_help =
   {|PURPOSE
-  Create a proposed agent document using today's date and the proposed
+  Create an exploring agent document using today's date and the exploring
   document template.
 
 WHEN TO USE
-  Use before implementing a decision that should be recorded.
+  Use while open questions still prevent a formal proposal.
 
 USAGE
   spec-dev-tool create <class> <doc-name>
@@ -65,6 +70,9 @@ OUTPUT
 NEXT STEP
   Replace the template prompts, then run:
     spec-dev-tool check <created-path>
+  Ask the user to answer every question in the document.
+  Wait for the answers before any lifecycle transition.
+  Do not implement a document while its lifecycle is exploring.
 |}
 
 let list_help =
@@ -78,8 +86,8 @@ USAGE
   spec-dev-tool list [<lifecycle> [<days>]]
 
 ARGUMENTS
-  <lifecycle> defaults to proposed and is one of:
-    proposed | implemented | rejected | archived
+  <lifecycle> defaults to exploring and is one of:
+    exploring | proposed | implemented | rejected | archived
 
   <days> defaults to 30 and must be a positive base-10 integer.
 
@@ -121,25 +129,32 @@ let transition_help =
   Record a decision outcome by moving its document to the next lifecycle.
 
 WHEN TO USE
-  Use after a proposal is implemented or rejected, or after implemented
-  documentation becomes stable historical context.
+  Use after exploration produces a proposal or rejection, after a proposal is
+  implemented or rejected, or after implemented documentation becomes stable
+  historical context.
 
 USAGE
+  spec-dev-tool transition <doc-path> proposed
   spec-dev-tool transition <doc-path> implemented
   spec-dev-tool transition <doc-path> rejected --reason "<sentence>"
   spec-dev-tool transition <doc-path> archived
 
 CONSTRAINTS
   Supported transitions:
+    exploring   -> proposed
+    exploring   -> rejected
     proposed    -> implemented
     proposed    -> rejected
     implemented -> archived
 
   <doc-path> must be a canonical project-relative path.
-  Rewrite a proposal to implemented format before transitioning it to
-  implemented.
+  An exploring document may transition only after the user has answered every question.
+  Do not implement a document while its lifecycle is exploring.
+  Rewrite an exploration to proposed format before transitioning it to
+  proposed. Rewrite a proposal to implemented format before transitioning it
+  to implemented.
   A rejection reason is required, non-empty, and single-line.
-  --reason is valid only for proposed -> rejected.
+  --reason is valid only for transitions to rejected.
 
 OUTPUT
   Prints the destination canonical project-relative path.
@@ -244,11 +259,12 @@ let list_with_arguments lifecycle days =
 
 let target_lifecycle value =
   match Spec_dev_tool.Agent_doc.lifecycle_of_string value with
+  | Ok Spec_dev_tool.Agent_doc.Proposed -> Ok Spec_dev_tool.Agent_doc.Proposed
   | Ok Spec_dev_tool.Agent_doc.Implemented ->
       Ok Spec_dev_tool.Agent_doc.Implemented
   | Ok Spec_dev_tool.Agent_doc.Rejected -> Ok Spec_dev_tool.Agent_doc.Rejected
   | Ok Spec_dev_tool.Agent_doc.Archived -> Ok Spec_dev_tool.Agent_doc.Archived
-  | Ok Spec_dev_tool.Agent_doc.Proposed | Error _ ->
+  | Ok Spec_dev_tool.Agent_doc.Exploring | Error _ ->
       Error (Printf.sprintf "invalid target lifecycle: %s" value)
 
 let report_transition_failure path errors =
@@ -295,7 +311,7 @@ let run = function
   | [ _; "check"; "--all" ] -> check_all ()
   | [ _; "check"; path ] when not (begins_with_hyphen path) -> check path
   | [ _; "create"; document_class; topic ] -> create document_class topic
-  | [ _; "list" ] -> list_documents Spec_dev_tool.Agent_doc.Proposed 30
+  | [ _; "list" ] -> list_documents Spec_dev_tool.Agent_doc.Exploring 30
   | [ _; "list"; lifecycle ] -> list_with_arguments lifecycle "30"
   | [ _; "list"; lifecycle; days ] -> list_with_arguments lifecycle days
   | [ _; "transition"; path; target ] -> transition path target None

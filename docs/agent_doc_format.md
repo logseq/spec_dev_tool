@@ -18,7 +18,7 @@ document's meaning: move the document when its lifecycle changes.
 Example:
 
 ```text
-docs/agent-guide/proposed/feature/2026-08-20-issue-picker.md
+docs/agent-guide/exploring/feature/2026-08-20-issue-picker.md
 ```
 
 ## Lifecycle
@@ -27,6 +27,7 @@ Choose exactly one lifecycle.
 
 | Lifecycle | Meaning | Maintenance policy |
 | --- | --- | --- |
+| `exploring` | A potential decision is being shaped and requires user answers before it can advance. | Refine the possible proposal, keep its final `Questions` section synchronized with the questions for the user, and do not implement it. |
 | `proposed` | A design is under consideration and has not been implemented. | Update it as the proposal, alternatives, acceptance criteria, or known risks change. |
 | `implemented` | The decision has been implemented and describes the current system. | Keep it synchronized with changes to actual paths, names, defaults, behavior, and other implementation facts. |
 | `rejected` | The proposal was considered and deliberately declined. | Preserve the proposal and the reason for rejecting it so the same path is not reconsidered without new evidence. |
@@ -35,10 +36,25 @@ Choose exactly one lifecycle.
 The normal lifecycle transitions are:
 
 ```text
-proposed -> implemented -> archived
-         \
-          -> rejected
+exploring -> proposed
+exploring -> rejected
+proposed -> implemented
+proposed -> rejected
+implemented -> archived
 ```
+
+Every new document starts as `exploring`. The agent must ask the user to answer
+every question in the document and wait for the answers. The agent must not
+invent or infer user answers, transition the document, or implement its
+decision while it remains `exploring`.
+
+After the user answers every question, the agent may transition the document to
+`proposed` or `rejected`. For `exploring -> proposed`, incorporate the user's
+answers into the proposal and rewrite it to the proposed-document format. The
+source document can temporarily be invalid for `exploring` while it is being
+rewritten; the transition validates the content as `proposed` before moving it.
+For `exploring -> rejected`, preserve the questions and relevant user answers
+as context and supply the rejection reason.
 
 When moving a document from `proposed` to `implemented`, rewrite it to describe
 the decision that was actually implemented, not merely the original intent.
@@ -90,6 +106,51 @@ have its own document.
 - Use exact identifiers, paths, commands, defaults, and behavior when they are
   relevant to the decision.
 - Split independently useful decisions into separate documents and link them.
+- For an exploring document, keep `Questions` as its final level-two section.
+- Do not implement a decision documented under `exploring`.
+
+## Exploring document
+
+Use this format while user answers are still required before a decision can
+become a formal proposal or be rejected. `Questions` is required, must contain
+content, and must be the final level-two section. After preparing and checking
+the document, the agent must ask the user to answer every question and stop.
+Implementation and lifecycle transitions are prohibited until the user has
+answered them.
+
+```markdown
+# <Decision title>
+
+## Problem
+
+<Describe the problem and why it matters without assuming a solution.>
+
+## Proposal
+
+<Describe the possible decision and its current scope.>
+
+## <Technical section>
+
+<Add as many design-specific sections as needed.>
+
+## Alternatives considered
+
+### <Alternative>
+
+<Describe the alternative and why it is not currently preferred.>
+
+## Acceptance criteria
+
+- <Observable condition that must be true for the proposal to be complete.>
+
+## Risks
+
+- <Risk, trade-off, or capability that might be intentionally given up.>
+
+## Questions
+
+- <Question the user must answer before the document can transition.>
+```
 
 ## Proposed document
 

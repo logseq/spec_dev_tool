@@ -64,7 +64,7 @@ machine-specific absolute project path.
 
 All affected operations use the discovered root explicitly:
 
-- `create` writes the new proposal below the root.
+- `create` writes the new exploration below the root.
 - `list` discovers documents below the root.
 - `check <doc-path>` reads the root-relative document path.
 - `check --all` discovers and validates documents below the root.

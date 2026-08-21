@@ -35,10 +35,11 @@ spec-dev-tool list <lifecycle>
 spec-dev-tool list <lifecycle> <days>
 ```
 
-`<lifecycle>` must be one of `proposed`, `implemented`, `rejected`, or
-`archived`. It defaults to `proposed` when omitted. `<days>` must be a positive
-base-10 integer and defaults to `30` when omitted. A caller that wants to set
-`<days>` must also provide `<lifecycle>`; there is no days-only positional form.
+`<lifecycle>` must be one of `exploring`, `proposed`, `implemented`, `rejected`,
+or `archived`. It defaults to `exploring` when omitted. `<days>` must be a
+positive base-10 integer and defaults to `30` when omitted. A caller that wants
+to set `<days>` must also provide `<lifecycle>`; there is no days-only
+positional form.
 
 An invalid lifecycle, a non-numeric or non-positive days value, or additional
 arguments is a usage error and exits with status `2`, consistent with the

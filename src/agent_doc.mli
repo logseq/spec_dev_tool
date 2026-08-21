@@ -1,4 +1,4 @@
-type lifecycle = Proposed | Implemented | Rejected | Archived
+type lifecycle = Exploring | Proposed | Implemented | Rejected | Archived
 
 type document_class =
   | Simplification

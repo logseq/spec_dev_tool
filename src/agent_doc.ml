@@ -1,4 +1,4 @@
-type lifecycle = Proposed | Implemented | Rejected | Archived
+type lifecycle = Exploring | Proposed | Implemented | Rejected | Archived
 
 type document_class =
   | Simplification
@@ -45,6 +45,7 @@ let string_of_document_class = function
   | Process -> "process"
 
 let lifecycle_of_string = function
+  | "exploring" -> Ok Exploring
   | "proposed" -> Ok Proposed
   | "implemented" -> Ok Implemented
   | "rejected" -> Ok Rejected
@@ -52,6 +53,7 @@ let lifecycle_of_string = function
   | value -> Error (Printf.sprintf "invalid lifecycle: %s" value)
 
 let string_of_lifecycle = function
+  | Exploring -> "exploring"
   | Proposed -> "proposed"
   | Implemented -> "implemented"
   | Rejected -> "rejected"
@@ -279,6 +281,15 @@ let headings lines =
   collect 0 false []
 
 let required_sections = function
+  | Exploring ->
+      [
+        "Problem";
+        "Proposal";
+        "Alternatives considered";
+        "Acceptance criteria";
+        "Risks";
+        "Questions";
+      ]
   | Proposed ->
       [
         "Problem";
@@ -407,10 +418,25 @@ let validate_content lifecycle content =
     then [ "required sections are out of order" ]
     else []
   in
+  let final_section_errors =
+    match lifecycle with
+    | Exploring -> (
+        match find_headings 2 "Questions" all_headings with
+        | [ questions ] -> (
+            match
+              List.rev
+                (List.filter (fun heading -> heading.level = 2) all_headings)
+            with
+            | final :: _ when final.line_index = questions.line_index -> []
+            | final :: _ -> [ "Questions must be the final level-two section" ]
+            | [] -> [])
+        | [] | _ :: _ :: _ -> [])
+    | Proposed | Implemented | Rejected | Archived -> []
+  in
   let content_errors = section_content_errors lines all_headings required in
   let errors =
     title_errors @ missing_errors @ duplicate_errors @ order_errors
-    @ content_errors
+    @ final_section_errors @ content_errors
   in
   if errors = [] then Ok () else Error errors
 
@@ -499,7 +525,7 @@ let transition_path path =
 let transition_reason target reason =
   match (target, reason) with
   | Rejected, None ->
-      Error (Usage_error "proposed to rejected requires --reason <sentence>")
+      Error (Usage_error "transition to rejected requires --reason <sentence>")
   | Rejected, Some value ->
       let trimmed = String.trim value in
       if
@@ -508,35 +534,47 @@ let transition_reason target reason =
       then
         Error (Usage_error "rejection reason must be non-empty and single-line")
       else Ok (Rejection_reason trimmed)
-  | (Proposed | Implemented | Archived), None -> Ok No_reason
-  | (Proposed | Implemented | Archived), Some _ ->
-      Error (Usage_error "--reason is only valid for proposed to rejected")
+  | (Exploring | Proposed | Implemented | Archived), None -> Ok No_reason
+  | (Exploring | Proposed | Implemented | Archived), Some _ ->
+      Error (Usage_error "--reason is only valid for transitions to rejected")
 
 let transition_kind source target reason =
-  match (source, target, reason) with
-  | Proposed, Rejected, Rejection_reason reason -> Ok (Reject reason)
-  | Proposed, Implemented, No_reason | Implemented, Archived, No_reason ->
-      Ok Direct
-  | Proposed, Proposed, No_reason
-  | Proposed, Archived, No_reason
-  | Implemented, Proposed, No_reason
-  | Implemented, Implemented, No_reason
-  | Implemented, Rejected, Rejection_reason _
-  | Rejected, Proposed, No_reason
-  | Rejected, Implemented, No_reason
-  | Rejected, Rejected, Rejection_reason _
-  | Rejected, Archived, No_reason
-  | Archived, Proposed, No_reason
-  | Archived, Implemented, No_reason
-  | Archived, Rejected, Rejection_reason _
-  | Archived, Archived, No_reason ->
-      Error (Usage_error "unsupported lifecycle transition")
-  | (Proposed | Implemented | Rejected | Archived), Rejected, No_reason ->
-      Error (Usage_error "proposed to rejected requires --reason <sentence>")
-  | ( (Proposed | Implemented | Rejected | Archived),
-      (Proposed | Implemented | Archived),
-      Rejection_reason _ ) ->
-      Error (Usage_error "--reason is only valid for proposed to rejected")
+  match reason with
+  | Rejection_reason reason -> (
+      match (source, target) with
+      | (Exploring | Proposed), Rejected -> Ok (Reject reason)
+      | (Implemented | Rejected | Archived), Rejected ->
+          Error (Usage_error "unsupported lifecycle transition")
+      | ( (Exploring | Proposed | Implemented | Rejected | Archived),
+          (Exploring | Proposed | Implemented | Archived) ) ->
+          Error
+            (Usage_error "--reason is only valid for transitions to rejected"))
+  | No_reason -> (
+      match (source, target) with
+      | Exploring, Proposed | Proposed, Implemented | Implemented, Archived ->
+          Ok Direct
+      | (Exploring | Proposed), Rejected ->
+          Error
+            (Usage_error "transition to rejected requires --reason <sentence>")
+      | (Implemented | Rejected | Archived), Rejected
+      | Exploring, Exploring
+      | Exploring, Implemented
+      | Exploring, Archived
+      | Proposed, Exploring
+      | Proposed, Proposed
+      | Proposed, Archived
+      | Implemented, Exploring
+      | Implemented, Proposed
+      | Implemented, Implemented
+      | Rejected, Exploring
+      | Rejected, Proposed
+      | Rejected, Implemented
+      | Rejected, Archived
+      | Archived, Exploring
+      | Archived, Proposed
+      | Archived, Implemented
+      | Archived, Archived ->
+          Error (Usage_error "unsupported lifecycle transition"))
 
 let array_slice array start finish =
   Array.sub array start (finish - start) |> Array.to_list
@@ -687,7 +725,7 @@ let transition root request =
       let prepared =
         match request.kind with
         | Reject reason -> (
-            match validate_content Proposed content with
+            match validate_content request.source.lifecycle content with
             | Ok () -> Ok (rejected_content content reason)
             | Error errors -> Error errors)
         | Direct -> Ok content
@@ -723,7 +761,7 @@ let title_of_topic topic =
   |> List.map String.capitalize_ascii
   |> String.concat " "
 
-let proposed_template topic =
+let exploring_template topic =
   Printf.sprintf
     "# %s\n\n\
      ## Problem\n\n\
@@ -737,7 +775,9 @@ let proposed_template topic =
      - Define an observable condition that must be true for the proposal to be \
      complete.\n\n\
      ## Risks\n\n\
-     - Identify a risk, trade-off, or capability intentionally given up.\n"
+     - Identify a risk, trade-off, or capability intentionally given up.\n\n\
+     ## Questions\n\n\
+     - Identify a question to answer before proposing.\n"
     (title_of_topic topic)
 
 let create root document_class topic =
@@ -746,7 +786,7 @@ let create root document_class topic =
   else
     let document_class = string_of_document_class document_class in
     let relative_path =
-      Printf.sprintf "docs/agent-guide/proposed/%s/%s-%s.md" document_class
+      Printf.sprintf "docs/agent-guide/exploring/%s/%s-%s.md" document_class
         (current_date ()) topic
     in
     let destination = absolute_path root relative_path in
@@ -759,7 +799,7 @@ let create root document_class topic =
       in
       Fun.protect
         ~finally:(fun () -> close_out_noerr channel)
-        (fun () -> output_string channel (proposed_template topic));
+        (fun () -> output_string channel (exploring_template topic));
       Ok relative_path
     with
     | Sys_error _ when Sys.file_exists destination ->
