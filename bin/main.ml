@@ -6,6 +6,9 @@ AGENT WORKFLOW
     spec-dev-tool list-exploring
     spec-dev-tool list-proposed
 
+  Discover repository simplification candidates before a decision is known:
+    spec-dev-tool guide find-simplifications
+
   Start a decision before implementation:
     spec-dev-tool create <class> <doc-name>
 
@@ -28,6 +31,7 @@ AGENT WORKFLOW
     spec-dev-tool check --all
 
 COMMANDS
+  guide             Print an agent workflow guide.
   create            Create an exploring agent document.
   list-exploring    List recent exploring documents.
   list-proposed     List recent proposed documents.
@@ -51,6 +55,182 @@ EXIT STATUS
   1  Document validation or filesystem operation failed.
   2  Command arguments are invalid.
 |}
+
+let guide_help =
+  {|PURPOSE
+  Print read-only operational guides for repository-aware agent workflows.
+
+WHEN TO USE
+  Use when the desired decision is not yet concrete and the agent needs a
+  repeatable discovery workflow.
+
+USAGE
+  spec-dev-tool guide find-simplifications
+
+TOPICS
+  find-simplifications  Audit the current Git worktree for evidence-backed,
+                        behavior-preserving simplification candidates.
+
+OUTPUT
+  Prints the selected guide. A guide may resolve the current Git worktree but
+  does not write repository files.
+
+NEXT STEP
+  Run the topic from the repository to audit, then follow its WORKFLOW.
+|}
+
+let find_simplifications_guide root =
+  Printf.sprintf
+    {|PURPOSE
+  Guide an agent through a semantic audit for behavior-preserving
+  simplifications in this target Git worktree:
+    %s
+
+  The command only prints this guide. It does not scan the repository, invoke
+  an LLM, spawn subagents, run repository checks, write files, transition agent
+  documents, or implement candidates. The agent following the guide performs
+  the audit and may edit exploring documents only when the surrounding user
+  request authorizes that work.
+
+WHEN TO USE
+  Use when the user asks to find simplifications but has not already named a
+  concrete decision. A simplification removes accidental complexity while
+  preserving observable behavior and every supported public contract. A
+  behavior-changing product or architecture decision must be reclassified and
+  handled separately with user authorization.
+
+  Interpret scope from the user's natural-language request; there is no
+  structured scope option. Restate the user-requested scope, priorities, paths,
+  subsystems, symbols, behaviors, Git changes, exclusions, and ambiguities
+  before surveying. If the user supplied no narrower scope, audit the complete
+  target worktree shown above.
+
+WORKFLOW
+  1. Read target-repository context in this order.
+     - Read every applicable AGENTS.md and other repository-owned agent
+       instruction before judging a candidate.
+     - Read docs/agent_doc_format.md when present. Otherwise use the document
+       rules in this guide: one primary decision per document; use the
+       simplification class only for behavior-preserving accidental-complexity
+       removal; use the required Problem, Proposal, Alternatives considered,
+       Acceptance criteria, Risks, and Questions sections; keep Questions as
+       the final level-two section of an exploring document; and never
+       implement an exploring decision.
+     - Discover and read relevant lifecycle documents with list-exploring,
+       list-proposed, list-implemented, list-rejected, and list-archived.
+       Existing exploring or proposed documents own overlapping work: refine
+       them instead of creating duplicates. Implemented documents are evidence
+       of intentional current design; reconsider one only with stronger new
+       evidence. Do not repeat a rejected path without materially new evidence.
+     - Read repository architecture, testing, dependency, compatibility, and
+       development documentation, including protected seams, generated-code
+       policy, supported platforms, and public compatibility requirements.
+     - Identify production entry points and build or package metadata needed to
+       classify real consumers.
+
+  2. Establish the corpus before judging usage.
+     Classify relevant code and consumers as production, non-production,
+     ambiguous, generated, vendored, or external according to repository
+     evidence. Do not universally classify tests, examples, scripts,
+     benchmarks, fixtures, documentation, or public interfaces. Generated and
+     vendored code are normally excluded as edit targets, but their generator
+     or integration layer can remain in scope. Record meaningful exclusions.
+
+  3. Survey the complete scope before selecting final candidates.
+     Partition the scope by real subsystem or ownership boundary. Look broadly
+     for meaningful net deletion or one clearer source of truth, including:
+     - APIs, configuration, events, hooks, registries, or extension points with
+       no demonstrated production or supported external consumer;
+     - mirrored state, duplicate sources of truth, parallel lifecycle
+       machinery, and wrappers that preserve no independent policy;
+     - speculative generality, defensive behavior without a matching trust
+       boundary, and abstractions with only one non-test implementation;
+     - packages, helpers, scripts, fixtures, snapshots, tests, configuration,
+       documentation, or generated artifacts that exist only for unused
+       behavior;
+     - hand-rolled infrastructure replaceable by an already-allowed standard
+       facility or maintained dependency with less total code and identical
+       required semantics; and
+     - obsolete residue from features that were later removed.
+     Search tools and language analyzers are discovery aids, not proof. Search
+     identifiers, wire values, configuration keys, constructors, indirect
+     registrations, loaders, reflection, generated references, and public
+     contract documentation, then read the relevant call sites.
+
+  4. Prove or reject every candidate.
+     Record the concrete surface to remove, fold, demote, or replace; all
+     production, non-production, ambiguous, generated, and external consumers;
+     relevant agent documents and repository policies; the observable behavior
+     and public contract that remain unchanged; all code, tests, documentation,
+     configuration, and generated artifacts that disappear or simplify; why
+     the result is net deletion or one source of truth rather than relocated
+     complexity; and the repository checks that can prove preservation.
+
+     Reject a candidate when a production or supported external consumer needs
+     it, when the change is mainly a feature or architecture decision, when
+     repository evidence protects it without stronger contrary evidence, or
+     when broad churn does not reduce concepts or obligations. A reasonable but
+     different behavior is not a simplification.
+
+  5. Select one disposition for every investigated candidate.
+     - document: durable evidence supports one simplification decision.
+     - merge: an active exploring or proposed document already owns it.
+     - local: useful mechanical cleanup is too small for a durable decision.
+     - reject: evidence does not support behavior-preserving simplification.
+     - reclassify: the valuable idea primarily belongs to another class.
+
+     Only document creates a new agent document. Merge updates only the owning
+     active document. Report local, reject, and reclassify results without
+     silently editing code, creating TODO comments, or persisting an audit
+     artifact. The discovery workflow never implements a candidate.
+
+  6. Write and validate durable candidate documents.
+     For each document disposition, run:
+       spec-dev-tool create simplification <topic-name>
+     Replace the generic template with an evidence-backed exploring document
+     that owns one decision. Include exact surfaces and consumers, the
+     behavior-preserving end state, related code/test/documentation/
+     configuration/generated-artifact cleanup, verification commands, and the
+     strongest reason to retain the current design. Keep only user decisions or
+     genuine unknowns in Questions, which must remain the final level-two
+     section. For each new document run:
+       spec-dev-tool check <created-path>
+     Check updated active documents by their canonical paths as well.
+
+EVIDENCE
+  Target-repository instructions are authoritative. Call-site reading and
+  repository-owned contract evidence outrank unused-symbol reports, reference
+  counts, guesses, and generic language conventions. Distinguish production
+  evidence from tests and documentation. For a public or dynamically loaded
+  surface, explicitly investigate external use, reflection, registration,
+  generated references, and compatibility promises before calling it unused.
+
+  A strong candidate preserves observable behavior, reduces total concepts or
+  obligations, includes its dependent cleanup, and names checks capable of
+  demonstrating the preserved behavior. Unknown support status is a question,
+  not permission to discard a contract.
+
+OUTPUT
+  Finish with one audit report containing:
+  - the target repository and restated user-requested scope;
+  - areas surveyed and meaningful exclusions;
+  - every candidate disposition with a concise evidence summary;
+  - paths of created or updated exploring documents;
+  - checks run and their results; and
+  - all questions the user must answer before transition or implementation.
+
+  An audit with zero durable candidates succeeds. Include representative rejected candidates
+  and the evidence that prevented weak proposals; do not create an empty or
+  speculative document. Rejected, local, and reclassified candidates remain
+  only in the conversation report.
+
+NEXT STEP
+  Present all Questions from every created or updated exploring document to the
+  user, then stop. Do not implement any candidate. Do not transition any
+  document as part of this workflow. Wait for the user to answer every question
+  before a later proposal, rejection, or implementation workflow begins.
+|}
+    root
 
 let create_help =
   {|PURPOSE
@@ -296,6 +476,7 @@ let transition path target reason =
 let begins_with_hyphen value = String.length value > 0 && value.[0] = '-'
 
 let command_help = function
+  | "guide" -> Some guide_help
   | "create" -> Some create_help
   | "list-exploring" -> Some (list_help "exploring")
   | "list-proposed" -> Some (list_help "proposed")
@@ -313,6 +494,12 @@ let run = function
       | Some help -> print_help help
       | None ->
           usage_error Top_level (Printf.sprintf "unknown command: %s" command))
+  | [ _; "guide"; "find-simplifications" ]
+  | [ _; "guide"; "find-simplifications"; ("--help" | "-h") ] ->
+      with_project_root (fun root ->
+          print_help
+            (find_simplifications_guide
+               (Spec_dev_tool.Agent_doc.project_root_path root)))
   | [ _; "check"; "--all" ] -> check_all ()
   | [ _; "check"; path ] when not (begins_with_hyphen path) -> check path
   | [ _; "create"; document_class; topic ] -> create document_class topic

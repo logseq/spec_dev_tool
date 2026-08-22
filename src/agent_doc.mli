@@ -16,6 +16,7 @@ val document_class_of_string : string -> (document_class, string) result
 val lifecycle_of_string : string -> (lifecycle, string) result
 val is_topic_name : string -> bool
 val resolve_project_root : unit -> (project_root, string) result
+val project_root_path : project_root -> string
 val check : project_root -> string -> (unit, string list) result
 
 val check_all :

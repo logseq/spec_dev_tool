@@ -241,6 +241,30 @@ let check_path_content root path expected =
     (read_file absolute_path = expected)
     (Printf.sprintf "unexpected content at %s" path)
 
+let snapshot_worktree root =
+  let rec snapshot relative_path =
+    let absolute_path = Filename.concat root relative_path in
+    match (Unix.lstat absolute_path).st_kind with
+    | Unix.S_DIR ->
+        let children =
+          Sys.readdir absolute_path |> Array.to_list
+          |> List.filter (fun name -> relative_path <> "." || name <> ".git")
+          |> List.sort String.compare
+        in
+        ("directory", relative_path)
+        :: List.concat_map
+             (fun name ->
+               snapshot
+                 (if relative_path = "." then name
+                  else Filename.concat relative_path name))
+             children
+    | Unix.S_REG -> [ ("file:" ^ read_file absolute_path, relative_path) ]
+    | Unix.S_LNK -> [ ("symlink:" ^ Unix.readlink absolute_path, relative_path) ]
+    | Unix.S_CHR | Unix.S_BLK | Unix.S_FIFO | Unix.S_SOCK ->
+        [ ("special", relative_path) ]
+  in
+  snapshot "."
+
 let () =
   test "check accepts every lifecycle with its required structure" (fun () ->
       with_temp_directory (fun root ->
@@ -1326,6 +1350,170 @@ let () =
           check_failure result "Cannot locate project root";
           check_path_absent root "docs"));
 
+  test
+    "guide find-simplifications emits the complete read-only repository workflow"
+    (fun () ->
+      with_temp_directory (fun root ->
+          let nested = Filename.concat root "src/nested" in
+          let rec make_directory path =
+            if path = root || Sys.file_exists path then ()
+            else (
+              make_directory (Filename.dirname path);
+              Unix.mkdir path 0o755)
+          in
+          make_directory nested;
+          write_file (Filename.concat root "tracked-input.txt") "unchanged\n";
+          let before = snapshot_worktree root in
+          let from_root = run ~cwd:root [ "guide"; "find-simplifications" ] in
+          let from_nested =
+            run ~cwd:nested [ "guide"; "find-simplifications" ]
+          in
+          let help =
+            run ~cwd:nested [ "guide"; "find-simplifications"; "--help" ]
+          in
+          List.iter check_success [ from_root; from_nested; help ];
+          check
+            (from_root.stderr = "" && from_nested.stderr = ""
+            && help.stderr = "")
+            "guide wrote successful output to stderr";
+          check
+            (from_root.stdout = from_nested.stdout
+            && from_nested.stdout = help.stdout)
+            "guide output changed by invocation directory or --help";
+          check
+            (contains from_root.stdout root)
+            "guide did not identify the resolved target worktree";
+          [
+            "PURPOSE";
+            "WHEN TO USE";
+            "WORKFLOW";
+            "EVIDENCE";
+            "OUTPUT";
+            "NEXT STEP";
+            "user-requested scope";
+            "AGENTS.md";
+            "docs/agent_doc_format.md";
+            "list-exploring";
+            "list-proposed";
+            "list-implemented";
+            "list-rejected";
+            "architecture";
+            "testing";
+            "dependency";
+            "compatibility";
+            "production";
+            "non-production";
+            "ambiguous";
+            "generated";
+            "vendored";
+            "external";
+            "public contract";
+            "observable behavior";
+            "net deletion";
+            "document";
+            "merge";
+            "local";
+            "reject";
+            "reclassify";
+            "spec-dev-tool create simplification <topic-name>";
+            "spec-dev-tool check <created-path>";
+            "Questions";
+            "Do not implement";
+            "Do not transition";
+            "zero";
+            "representative rejected candidates";
+            "created or updated";
+            "checks run";
+            "questions the user must answer";
+          ]
+          |> List.iter (fun expected ->
+                 check
+                   (contains from_root.stdout expected)
+                   ("guide is missing required guidance: " ^ expected));
+          check_before from_root.stdout "PURPOSE" "WHEN TO USE";
+          check_before from_root.stdout "WHEN TO USE" "WORKFLOW";
+          check_before from_root.stdout "WORKFLOW" "EVIDENCE";
+          check_before from_root.stdout "EVIDENCE" "OUTPUT";
+          check_before from_root.stdout "OUTPUT" "NEXT STEP";
+          check_before from_root.stdout "AGENTS.md" "docs/agent_doc_format.md";
+          check_before from_root.stdout "Survey the complete scope"
+            "Prove or reject every candidate";
+          check_before from_root.stdout "Prove or reject every candidate"
+            "Select one disposition";
+          check
+            (snapshot_worktree root = before)
+            "guide modified the target worktree"));
+
+  test "guide namespace help is discoverable and independent of Git" (fun () ->
+      with_non_git_temp_directory (fun root ->
+          let fake_bin = Filename.concat root "bin" in
+          Unix.mkdir fake_bin 0o755;
+          let fake_git = Filename.concat fake_bin "git" in
+          write_file fake_git "#!/bin/sh\n: > git-was-run\nexit 1\n";
+          Unix.chmod fake_git 0o755;
+          let long = run ~path:fake_bin ~cwd:root [ "guide"; "--help" ] in
+          let short = run ~path:fake_bin ~cwd:root [ "guide"; "-h" ] in
+          List.iter check_success [ long; short ];
+          check
+            (long.stdout = short.stdout && long.stderr = "")
+            "guide namespace help aliases differ or wrote to stderr";
+          [
+            "PURPOSE";
+            "WHEN TO USE";
+            "USAGE";
+            "spec-dev-tool guide find-simplifications";
+            "TOPICS";
+            "find-simplifications";
+            "OUTPUT";
+            "NEXT STEP";
+          ]
+          |> List.iter (fun expected ->
+                 check
+                   (contains long.stdout expected)
+                   ("guide namespace help is missing: " ^ expected));
+          check_path_absent root "git-was-run";
+          check_path_absent root "docs"));
+
+  test "guide failures preserve exit channels, status, and the worktree" (fun () ->
+      with_non_git_temp_directory (fun root ->
+          write_file (Filename.concat root "existing.txt") "unchanged\n";
+          let before = snapshot_worktree root in
+          [
+            [ "guide"; "find-simplifications" ];
+            [ "guide"; "find-simplifications"; "--help" ];
+          ]
+          |> List.iter (fun arguments ->
+                 let result = run ~cwd:root arguments in
+                 check_failure result "Cannot locate project root";
+                 check (result.stdout = "") "root failure wrote to stdout";
+                 check
+                   (not (contains result.stderr "Try: spec-dev-tool"))
+                   "root failure included usage guidance";
+                 check
+                   (snapshot_worktree root = before)
+                   "root failure modified the worktree"));
+      with_non_git_temp_directory (fun root ->
+          let fake_bin = Filename.concat root "bin" in
+          Unix.mkdir fake_bin 0o755;
+          let fake_git = Filename.concat fake_bin "git" in
+          write_file fake_git "#!/bin/sh\n: > git-was-run\nexit 1\n";
+          Unix.chmod fake_git 0o755;
+          [
+            [ "guide" ];
+            [ "guide"; "unknown-topic" ];
+            [ "guide"; "unknown-topic"; "--help" ];
+            [ "guide"; "find-simplifications"; "extra" ];
+            [ "guide"; "find-simplifications"; "--scope"; "src" ];
+            [ "guide"; "find-simplifications"; "--unknown" ];
+          ]
+          |> List.iter (fun arguments ->
+                 let result = run ~path:fake_bin ~cwd:root arguments in
+                 check_failure ~status:2 result
+                   "Try: spec-dev-tool guide --help";
+                 check (result.stdout = "") "guide usage error wrote to stdout");
+          check_path_absent root "git-was-run";
+          check_path_absent root "docs"));
+
   test "all help forms provide ordered agent-oriented guidance without Git"
     (fun () ->
       with_non_git_temp_directory (fun root ->
@@ -1357,6 +1545,8 @@ let () =
             "list-implemented";
             "list-rejected";
             "list-archived";
+            "guide";
+            "spec-dev-tool guide find-simplifications";
             "EXIT STATUS";
             "0  Command completed successfully.";
             "1  Document validation or filesystem operation failed.";
@@ -1367,6 +1557,8 @@ let () =
                 (contains long_top.stdout text)
                 ("missing top-level help: " ^ text));
           check_before long_top.stdout "AGENT WORKFLOW" "COMMANDS";
+          check_before long_top.stdout "spec-dev-tool guide find-simplifications"
+            "spec-dev-tool create <class> <doc-name>";
           check_before long_top.stdout "spec-dev-tool create <class> <doc-name>"
             "Ask the user to answer every question in the document.";
           check_before long_top.stdout

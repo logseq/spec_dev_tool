@@ -65,10 +65,10 @@ let canonical_document_path lifecycle document_class filename =
     (string_of_document_class document_class)
     filename
 
-let root_path (Project_root path) = path
+let project_root_path (Project_root path) = path
 
 let absolute_path root relative_path =
-  Filename.concat (root_path root) relative_path
+  Filename.concat (project_root_path root) relative_path
 
 let project_root_error =
   "Cannot locate project root: current directory is not inside a Git worktree."
