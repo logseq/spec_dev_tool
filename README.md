@@ -26,6 +26,11 @@ spec-dev-tool --help
 Repository commands work from any directory inside a Git worktree. Run the
 top-level help and follow its `AGENT WORKFLOW` for command guidance.
 
+Simplification audits can define repository-specific operational rules at
+`.spec-dev-tool/guides/find-simplifications.md`. The first
+`spec-dev-tool guide find-simplifications` invocation creates a headings-only
+template when that file is missing; later invocations validate and inline it.
+
 ## Development
 
 ```sh

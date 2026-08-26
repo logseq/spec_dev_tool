@@ -17,7 +17,7 @@ AGENT WORKFLOW
 
   Wait for required user input:
     Ask the user to answer every question in the document.
-    Do not implement a document while its lifecycle is exploring.
+    While creating or editing an exploring document, do not modify any other repository file.
 
   Record a decision outcome:
     spec-dev-tool transition <doc-path> proposed
@@ -58,7 +58,7 @@ EXIT STATUS
 
 let guide_help =
   {|PURPOSE
-  Print read-only operational guides for repository-aware agent workflows.
+  Print operational guides for repository-aware agent workflows.
 
 WHEN TO USE
   Use when the desired decision is not yet concrete and the agent needs a
@@ -72,25 +72,64 @@ TOPICS
                         behavior-preserving simplification candidates.
 
 OUTPUT
-  Prints the selected guide. A guide may resolve the current Git worktree but
-  does not write repository files.
+  Prints the selected guide. The find-simplifications topic prepares,
+  validates, and inlines repository rules from
+  .spec-dev-tool/guides/find-simplifications.md. It creates only the missing
+  headings-only rules template and its parent directories.
 
 NEXT STEP
   Run the topic from the repository to audit, then follow its WORKFLOW.
 |}
 
-let find_simplifications_guide root =
+let find_simplifications_help =
+  {|PURPOSE
+  Print the repository-aware simplification audit workflow.
+
+WHEN TO USE
+  Use before a simplification audit to load the generic evidence method and
+  the target repository's operational rules.
+
+USAGE
+  spec-dev-tool guide find-simplifications
+
+BEHAVIOR
+  Resolves the current Git worktree and uses the root-level file:
+    .spec-dev-tool/guides/find-simplifications.md
+
+  If the file is missing, the command creates its parent directories and a
+  headings-only template without overwriting a concurrent file. Every normal
+  invocation validates the fixed heading schema and inlines the complete file
+  after the generic workflow. Existing valid files are never rewritten.
+
+  This help form does not resolve Git, inspect files, or create the template.
+
+NEXT STEP
+  Run the command from the repository to audit, then follow its WORKFLOW and
+  REPOSITORY CUSTOMIZATION sections.
+|}
+
+let find_simplifications_guide root
+    (overlay : Spec_dev_tool.Simplification_guide_overlay.t) =
+  let overlay_newline =
+    if
+      String.length overlay.content > 0
+      && overlay.content.[String.length overlay.content - 1] = '\n'
+    then ""
+    else "\n"
+  in
   Printf.sprintf
     {|PURPOSE
   Guide an agent through a semantic audit for behavior-preserving
   simplifications in this target Git worktree:
     %s
 
-  The command only prints this guide. It does not scan the repository, invoke
-  an LLM, spawn subagents, run repository checks, write files, transition agent
-  documents, or implement candidates. The agent following the guide performs
-  the audit and may edit exploring documents only when the surrounding user
-  request authorizes that work.
+  The command prepares and prints this guide. It does not scan repository code,
+  invoke an LLM, spawn subagents, run repository checks, transition agent
+  documents, or implement candidates. Its only repository write is exclusive
+  creation of a missing simplification-rules template and its parent
+  directories. The agent following the guide performs the audit and may edit
+  exploring documents only when the surrounding user request authorizes that
+  work.
 
 WHEN TO USE
   Use when the user asks to find simplifications but has not already named a
@@ -109,6 +148,12 @@ WORKFLOW
   1. Read target-repository context in this order.
      - Read every applicable AGENTS.md and other repository-owned agent
        instruction before judging a candidate.
+     - Apply the inlined root-level repository customization in this output.
+       It supplements the generic evidence method and may make it stricter, but
+       it cannot change spec-dev-tool lifecycle or class invariants, authorize
+       implementation during discovery, or turn observable behavior changes
+       into simplifications. Continue to honor nested AGENTS.md files while
+       entering their directories.
      - Read docs/agent_doc_format.md when present. Otherwise use the document
        rules in this guide: one primary decision per document; use the
        simplification class only for behavior-preserving accidental-complexity
@@ -224,13 +269,26 @@ OUTPUT
   speculative document. Rejected, local, and reclassified candidates remain
   only in the conversation report.
 
+REPOSITORY CUSTOMIZATION
+  Source: %s
+  Template created: %s
+  The content below supplements the generic workflow. If it conflicts with an
+  applicable AGENTS.md constraint, implemented decision document, lifecycle or
+  class invariant, or another mandatory instruction, stop and report the exact
+  conflict instead of weakening either rule.
+
+BEGIN REPOSITORY-SPECIFIC SIMPLIFICATION RULES
+%s%sEND REPOSITORY-SPECIFIC SIMPLIFICATION RULES
+
 NEXT STEP
   Present all Questions from every created or updated exploring document to the
   user, then stop. Do not implement any candidate. Do not transition any
   document as part of this workflow. Wait for the user to answer every question
   before a later proposal, rejection, or implementation workflow begins.
 |}
-    root
+    root Spec_dev_tool.Simplification_guide_overlay.relative_path
+    (if overlay.created then "yes" else "no")
+    overlay.content overlay_newline
 
 let create_help =
   {|PURPOSE
@@ -257,7 +315,7 @@ NEXT STEP
     spec-dev-tool check <created-path>
   Ask the user to answer every question in the document.
   Wait for the answers before any lifecycle transition.
-  Do not implement a document while its lifecycle is exploring.
+  While creating or editing an exploring document, do not modify any other repository file.
 |}
 
 let list_help lifecycle =
@@ -333,7 +391,7 @@ CONSTRAINTS
 
   <doc-path> must be a canonical project-relative path.
   An exploring document may transition only after the user has answered every question.
-  Do not implement a document while its lifecycle is exploring.
+  While creating or editing an exploring document, do not modify any other repository file.
   Rewrite an exploration to proposed format before transitioning it to
   proposed. Rewrite a proposal to implemented format before transitioning it
   to implemented.
@@ -494,12 +552,19 @@ let run = function
       | Some help -> print_help help
       | None ->
           usage_error Top_level (Printf.sprintf "unknown command: %s" command))
-  | [ _; "guide"; "find-simplifications" ]
   | [ _; "guide"; "find-simplifications"; ("--help" | "-h") ] ->
+      print_help find_simplifications_help
+  | [ _; "guide"; "find-simplifications" ] ->
       with_project_root (fun root ->
-          print_help
-            (find_simplifications_guide
-               (Spec_dev_tool.Agent_doc.project_root_path root)))
+          match Spec_dev_tool.Simplification_guide_overlay.prepare root with
+          | Ok overlay ->
+              print_help
+                (find_simplifications_guide
+                   (Spec_dev_tool.Agent_doc.project_root_path root)
+                   overlay)
+          | Error message ->
+              prerr_endline message;
+              1)
   | [ _; "check"; "--all" ] -> check_all ()
   | [ _; "check"; path ] when not (begins_with_hyphen path) -> check path
   | [ _; "create"; document_class; topic ] -> create document_class topic

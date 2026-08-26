@@ -52,6 +52,12 @@ let write_file path content =
   create_directory (Filename.dirname path);
   Out_channel.with_open_bin path (fun channel -> output_string channel content)
 
+let rec ensure_directory path =
+  if path = "." || path = "/" || Sys.file_exists path then ()
+  else (
+    ensure_directory (Filename.dirname path);
+    Unix.mkdir path 0o755)
+
 let rec remove_tree path =
   match (Unix.lstat path).st_kind with
   | Unix.S_DIR ->
@@ -116,6 +122,59 @@ let run ?path ~cwd arguments =
     Sys.remove stdout_path;
     Sys.remove stderr_path;
     result
+
+let run_parallel ~cwd arguments count =
+  let spawn () =
+    let stdout_path = Filename.temp_file "spec-dev-tool-stdout-" ".txt" in
+    let stderr_path = Filename.temp_file "spec-dev-tool-stderr-" ".txt" in
+    let child = Unix.fork () in
+    if child = 0 then (
+      Unix.chdir cwd;
+      let stdout_channel = open_out_bin stdout_path in
+      let stderr_channel = open_out_bin stderr_path in
+      Unix.dup2 (Unix.descr_of_out_channel stdout_channel) Unix.stdout;
+      Unix.dup2 (Unix.descr_of_out_channel stderr_channel) Unix.stderr;
+      Unix.execv binary (Array.of_list (binary :: arguments)))
+    else (child, stdout_path, stderr_path)
+  in
+  let children = List.init count (fun _ -> spawn ()) in
+  children
+  |> List.map (fun (child, stdout_path, stderr_path) ->
+      let _, process_status = Unix.waitpid [] child in
+      let result =
+        {
+          status = exit_code process_status;
+          stdout = read_file stdout_path;
+          stderr = read_file stderr_path;
+        }
+      in
+      Sys.remove stdout_path;
+      Sys.remove stderr_path;
+      result)
+
+let simplification_overlay_path =
+  ".spec-dev-tool/guides/find-simplifications.md"
+
+let simplification_overlay_template =
+  "# Repository-Specific Simplification Rules\n\n" ^ "## Production corpus\n\n"
+  ^ "## Non-production and ambiguous corpus\n\n"
+  ^ "## Excluded edit targets\n\n" ^ "## Protected surfaces\n\n"
+  ^ "## Candidate priorities\n\n" ^ "## Dependency policy\n\n"
+  ^ "## Required evidence\n\n" ^ "## Validation\n"
+
+let detailed_simplification_overlay =
+  "# Repository-Specific Simplification Rules\n\n"
+  ^ "## Production corpus\n\n- `src/` is production.\n\n"
+  ^ "### Entry points\n\n- `bin/main.ml` is supported.\n\n"
+  ^ "## Non-production and ambiguous corpus\n\n- `test/` is non-production.\n\n"
+  ^ "## Excluded edit targets\n\n- Exclude `_build/`.\n\n"
+  ^ "## Protected surfaces\n\n- Preserve the CLI contract.\n\n"
+  ^ "```markdown\n# This fenced heading is content.\n"
+  ^ "## This fenced section is content.\n```\n\n"
+  ^ "## Candidate priorities\n\n- Prefer net deletion.\n\n"
+  ^ "## Dependency policy\n\n- Use the OCaml standard library.\n\n"
+  ^ "## Required evidence\n\n- Read every call site.\n\n"
+  ^ "## Validation\n\n- Run `dune runtest`.\n"
 
 let test name callback =
   try
@@ -259,7 +318,8 @@ let snapshot_worktree root =
                   else Filename.concat relative_path name))
              children
     | Unix.S_REG -> [ ("file:" ^ read_file absolute_path, relative_path) ]
-    | Unix.S_LNK -> [ ("symlink:" ^ Unix.readlink absolute_path, relative_path) ]
+    | Unix.S_LNK ->
+        [ ("symlink:" ^ Unix.readlink absolute_path, relative_path) ]
     | Unix.S_CHR | Unix.S_BLK | Unix.S_FIFO | Unix.S_SOCK ->
         [ ("special", relative_path) ]
   in
@@ -1351,44 +1411,45 @@ let () =
           check_path_absent root "docs"));
 
   test
-    "guide find-simplifications emits the complete read-only repository workflow"
-    (fun () ->
+    "guide creates the fixed overlay template once and uses it from nested \
+     paths" (fun () ->
       with_temp_directory (fun root ->
           let nested = Filename.concat root "src/nested" in
-          let rec make_directory path =
-            if path = root || Sys.file_exists path then ()
-            else (
-              make_directory (Filename.dirname path);
-              Unix.mkdir path 0o755)
-          in
-          make_directory nested;
+          ensure_directory nested;
           write_file (Filename.concat root "tracked-input.txt") "unchanged\n";
-          let before = snapshot_worktree root in
-          let from_root = run ~cwd:root [ "guide"; "find-simplifications" ] in
-          let from_nested =
-            run ~cwd:nested [ "guide"; "find-simplifications" ]
-          in
-          let help =
-            run ~cwd:nested [ "guide"; "find-simplifications"; "--help" ]
-          in
-          List.iter check_success [ from_root; from_nested; help ];
+          let first = run ~cwd:nested [ "guide"; "find-simplifications" ] in
+          check_success first;
+          check (first.stderr = "") "guide wrote successful output to stderr";
+          check_path_content root simplification_overlay_path
+            simplification_overlay_template;
           check
-            (from_root.stderr = "" && from_nested.stderr = ""
-            && help.stderr = "")
-            "guide wrote successful output to stderr";
-          check
-            (from_root.stdout = from_nested.stdout
-            && from_nested.stdout = help.stdout)
-            "guide output changed by invocation directory or --help";
-          check
-            (contains from_root.stdout root)
+            (contains first.stdout root)
             "guide did not identify the resolved target worktree";
+          check
+            (contains first.stdout
+               "Source: .spec-dev-tool/guides/find-simplifications.md")
+            "guide omitted the canonical overlay path";
+          check
+            (contains first.stdout "Template created: yes")
+            "first invocation did not report template creation";
+          let after_creation = snapshot_worktree root in
+          let repeated = run ~cwd:root [ "guide"; "find-simplifications" ] in
+          check_success repeated;
+          check
+            (contains repeated.stdout "Template created: no")
+            "repeated invocation reported template creation";
+          check
+            (snapshot_worktree root = after_creation)
+            "repeated invocation modified the existing overlay";
           [
             "PURPOSE";
             "WHEN TO USE";
             "WORKFLOW";
             "EVIDENCE";
             "OUTPUT";
+            "REPOSITORY CUSTOMIZATION";
+            "BEGIN REPOSITORY-SPECIFIC SIMPLIFICATION RULES";
+            "END REPOSITORY-SPECIFIC SIMPLIFICATION RULES";
             "NEXT STEP";
             "user-requested scope";
             "AGENTS.md";
@@ -1427,22 +1488,155 @@ let () =
             "questions the user must answer";
           ]
           |> List.iter (fun expected ->
-                 check
-                   (contains from_root.stdout expected)
-                   ("guide is missing required guidance: " ^ expected));
-          check_before from_root.stdout "PURPOSE" "WHEN TO USE";
-          check_before from_root.stdout "WHEN TO USE" "WORKFLOW";
-          check_before from_root.stdout "WORKFLOW" "EVIDENCE";
-          check_before from_root.stdout "EVIDENCE" "OUTPUT";
-          check_before from_root.stdout "OUTPUT" "NEXT STEP";
-          check_before from_root.stdout "AGENTS.md" "docs/agent_doc_format.md";
-          check_before from_root.stdout "Survey the complete scope"
+              check
+                (contains first.stdout expected)
+                ("guide is missing required guidance: " ^ expected));
+          check_before first.stdout "PURPOSE" "WHEN TO USE";
+          check_before first.stdout "WHEN TO USE" "WORKFLOW";
+          check_before first.stdout "WORKFLOW" "EVIDENCE";
+          check_before first.stdout "EVIDENCE" "OUTPUT";
+          check_before first.stdout "OUTPUT" "REPOSITORY CUSTOMIZATION";
+          check_before first.stdout "REPOSITORY CUSTOMIZATION" "NEXT STEP";
+          check_before first.stdout "AGENTS.md" "docs/agent_doc_format.md";
+          check_before first.stdout "Survey the complete scope"
             "Prove or reject every candidate";
-          check_before from_root.stdout "Prove or reject every candidate"
-            "Select one disposition";
+          check_before first.stdout "Prove or reject every candidate"
+            "Select one disposition"));
+
+  test "guide inlines an existing valid overlay exactly without rewriting it"
+    (fun () ->
+      with_temp_directory (fun root ->
+          write_file
+            (Filename.concat root simplification_overlay_path)
+            detailed_simplification_overlay;
+          let before = snapshot_worktree root in
+          let result = run ~cwd:root [ "guide"; "find-simplifications" ] in
+          check_success result;
+          check (result.stderr = "") "valid overlay wrote to stderr";
+          let expected_block =
+            "BEGIN REPOSITORY-SPECIFIC SIMPLIFICATION RULES\n"
+            ^ detailed_simplification_overlay
+            ^ "END REPOSITORY-SPECIFIC SIMPLIFICATION RULES\n"
+          in
+          check
+            (contains result.stdout expected_block)
+            "guide did not inline the complete overlay between delimiters";
+          check
+            (contains result.stdout "Template created: no")
+            "existing overlay was reported as newly created";
+          check
+            (count_occurrences result.stdout detailed_simplification_overlay = 1)
+            "guide did not inline the overlay exactly once";
           check
             (snapshot_worktree root = before)
-            "guide modified the target worktree"));
+            "guide rewrote an existing valid overlay"));
+
+  test "guide validates the exact repository overlay heading schema" (fun () ->
+      let invalid_cases =
+        [
+          ( "missing heading",
+            "# Repository-Specific Simplification Rules\n\n"
+            ^ "## Production corpus\n" );
+          ( "duplicate heading",
+            simplification_overlay_template ^ "\n## Validation\n" );
+          ( "additional level-one heading",
+            simplification_overlay_template ^ "\n# Extra\n" );
+          ( "additional level-two heading",
+            simplification_overlay_template ^ "\n## Extra\n" );
+          ( "out-of-order heading",
+            "# Repository-Specific Simplification Rules\n\n"
+            ^ "## Non-production and ambiguous corpus\n\n"
+            ^ "## Production corpus\n\n"
+            ^ "## Excluded edit targets\n\n## Protected surfaces\n\n"
+            ^ "## Candidate priorities\n\n## Dependency policy\n\n"
+            ^ "## Required evidence\n\n## Validation\n" );
+          ( "wrong title",
+            "# Repository Simplification Rules\n\n"
+            ^ String.sub simplification_overlay_template
+                (String.length "# Repository-Specific Simplification Rules\n\n")
+                (String.length simplification_overlay_template
+                - String.length "# Repository-Specific Simplification Rules\n\n"
+                ) );
+        ]
+      in
+      List.iter
+        (fun (name, content) ->
+          with_temp_directory (fun root ->
+              write_file
+                (Filename.concat root simplification_overlay_path)
+                content;
+              let before = snapshot_worktree root in
+              let result = run ~cwd:root [ "guide"; "find-simplifications" ] in
+              check_failure result "Invalid repository simplification rules";
+              check
+                (contains result.stderr name)
+                (Printf.sprintf "missing %s diagnostic: %S" name result.stderr);
+              check (result.stdout = "") "invalid overlay emitted partial guide";
+              check
+                (snapshot_worktree root = before)
+                "invalid overlay was modified"))
+        invalid_cases);
+
+  test "guide rejects unreadable, symbolic-link, and non-regular overlays"
+    (fun () ->
+      with_temp_directory (fun root ->
+          let overlay = Filename.concat root simplification_overlay_path in
+          write_file overlay simplification_overlay_template;
+          Unix.chmod overlay 0o000;
+          let result = run ~cwd:root [ "guide"; "find-simplifications" ] in
+          Unix.chmod overlay 0o644;
+          check_failure result "Cannot read repository simplification rules";
+          check (result.stdout = "") "unreadable overlay emitted partial guide");
+      with_temp_directory (fun root ->
+          let target = Filename.concat root "rules.md" in
+          write_file target simplification_overlay_template;
+          let overlay = Filename.concat root simplification_overlay_path in
+          ensure_directory (Filename.dirname overlay);
+          Unix.symlink target overlay;
+          let result = run ~cwd:root [ "guide"; "find-simplifications" ] in
+          check_failure result "symbolic link";
+          check (result.stdout = "") "symlink overlay emitted partial guide");
+      with_temp_directory (fun root ->
+          let overlay = Filename.concat root simplification_overlay_path in
+          ensure_directory overlay;
+          let result = run ~cwd:root [ "guide"; "find-simplifications" ] in
+          check_failure result "regular file";
+          check (result.stdout = "") "non-regular overlay emitted partial guide"));
+
+  test "concurrent guide invocations exclusively create one overlay" (fun () ->
+      with_temp_directory (fun root ->
+          let results =
+            run_parallel ~cwd:root [ "guide"; "find-simplifications" ] 8
+          in
+          List.iter check_success results;
+          check
+            (List.for_all (fun result -> result.stderr = "") results)
+            "concurrent invocation wrote to stderr";
+          check
+            (List.fold_left
+               (fun count result ->
+                 if contains result.stdout "Template created: yes" then
+                   count + 1
+                 else count)
+               0 results
+            = 1)
+            "concurrent invocations did not report exactly one exclusive \
+             creation";
+          check_path_content root simplification_overlay_path
+            simplification_overlay_template));
+
+  test "guide creation failures emit no partial output or unrelated writes"
+    (fun () ->
+      with_temp_directory (fun root ->
+          write_file (Filename.concat root "tracked-input.txt") "unchanged\n";
+          write_file (Filename.concat root ".spec-dev-tool") "occupied\n";
+          let before = snapshot_worktree root in
+          let result = run ~cwd:root [ "guide"; "find-simplifications" ] in
+          check_failure result "Cannot create repository simplification rules";
+          check (result.stdout = "") "creation failure emitted partial guide";
+          check
+            (snapshot_worktree root = before)
+            "creation failure modified unrelated worktree paths"));
 
   test "guide namespace help is discoverable and independent of Git" (fun () ->
       with_non_git_temp_directory (fun root ->
@@ -1465,33 +1659,72 @@ let () =
             "TOPICS";
             "find-simplifications";
             "OUTPUT";
+            "creates";
+            ".spec-dev-tool/guides/find-simplifications.md";
+            "validates";
+            "inlines";
             "NEXT STEP";
           ]
           |> List.iter (fun expected ->
-                 check
-                   (contains long.stdout expected)
-                   ("guide namespace help is missing: " ^ expected));
+              check
+                (contains long.stdout expected)
+                ("guide namespace help is missing: " ^ expected));
           check_path_absent root "git-was-run";
-          check_path_absent root "docs"));
+          check_path_absent root "docs";
+          check_path_absent root ".spec-dev-tool"));
 
-  test "guide failures preserve exit channels, status, and the worktree" (fun () ->
+  test "find-simplifications topic help is read-only and independent of Git"
+    (fun () ->
+      with_non_git_temp_directory (fun root ->
+          let fake_bin = Filename.concat root "bin" in
+          Unix.mkdir fake_bin 0o755;
+          let fake_git = Filename.concat fake_bin "git" in
+          write_file fake_git "#!/bin/sh\n: > git-was-run\nexit 1\n";
+          Unix.chmod fake_git 0o755;
+          let long =
+            run ~path:fake_bin ~cwd:root
+              [ "guide"; "find-simplifications"; "--help" ]
+          in
+          let short =
+            run ~path:fake_bin ~cwd:root
+              [ "guide"; "find-simplifications"; "-h" ]
+          in
+          List.iter check_success [ long; short ];
+          check
+            (long.stdout = short.stdout && long.stderr = "")
+            "topic help aliases differ or wrote to stderr";
+          [
+            "PURPOSE";
+            "USAGE";
+            "spec-dev-tool guide find-simplifications";
+            ".spec-dev-tool/guides/find-simplifications.md";
+            "missing";
+            "creates";
+            "validates";
+            "inlines";
+            "NEXT STEP";
+          ]
+          |> List.iter (fun expected ->
+              check
+                (contains long.stdout expected)
+                ("topic help is missing: " ^ expected));
+          check_path_absent root "git-was-run";
+          check_path_absent root ".spec-dev-tool"));
+
+  test "guide failures preserve exit channels, status, and the worktree"
+    (fun () ->
       with_non_git_temp_directory (fun root ->
           write_file (Filename.concat root "existing.txt") "unchanged\n";
           let before = snapshot_worktree root in
-          [
-            [ "guide"; "find-simplifications" ];
-            [ "guide"; "find-simplifications"; "--help" ];
-          ]
-          |> List.iter (fun arguments ->
-                 let result = run ~cwd:root arguments in
-                 check_failure result "Cannot locate project root";
-                 check (result.stdout = "") "root failure wrote to stdout";
-                 check
-                   (not (contains result.stderr "Try: spec-dev-tool"))
-                   "root failure included usage guidance";
-                 check
-                   (snapshot_worktree root = before)
-                   "root failure modified the worktree"));
+          let result = run ~cwd:root [ "guide"; "find-simplifications" ] in
+          check_failure result "Cannot locate project root";
+          check (result.stdout = "") "root failure wrote to stdout";
+          check
+            (not (contains result.stderr "Try: spec-dev-tool"))
+            "root failure included usage guidance";
+          check
+            (snapshot_worktree root = before)
+            "root failure modified the worktree");
       with_non_git_temp_directory (fun root ->
           let fake_bin = Filename.concat root "bin" in
           Unix.mkdir fake_bin 0o755;
@@ -1507,10 +1740,9 @@ let () =
             [ "guide"; "find-simplifications"; "--unknown" ];
           ]
           |> List.iter (fun arguments ->
-                 let result = run ~path:fake_bin ~cwd:root arguments in
-                 check_failure ~status:2 result
-                   "Try: spec-dev-tool guide --help";
-                 check (result.stdout = "") "guide usage error wrote to stdout");
+              let result = run ~path:fake_bin ~cwd:root arguments in
+              check_failure ~status:2 result "Try: spec-dev-tool guide --help";
+              check (result.stdout = "") "guide usage error wrote to stdout");
           check_path_absent root "git-was-run";
           check_path_absent root "docs"));
 
@@ -1539,7 +1771,8 @@ let () =
              process";
             "exploring | proposed | implemented | rejected | archived";
             "Ask the user to answer every question in the document.";
-            "Do not implement a document while its lifecycle is exploring.";
+            "While creating or editing an exploring document, do not modify \
+             any other repository file.";
             "list-exploring";
             "list-proposed";
             "list-implemented";
@@ -1557,12 +1790,14 @@ let () =
                 (contains long_top.stdout text)
                 ("missing top-level help: " ^ text));
           check_before long_top.stdout "AGENT WORKFLOW" "COMMANDS";
-          check_before long_top.stdout "spec-dev-tool guide find-simplifications"
+          check_before long_top.stdout
+            "spec-dev-tool guide find-simplifications"
             "spec-dev-tool create <class> <doc-name>";
           check_before long_top.stdout "spec-dev-tool create <class> <doc-name>"
             "Ask the user to answer every question in the document.";
           check_before long_top.stdout
-            "Do not implement a document while its lifecycle is exploring."
+            "While creating or editing an exploring document, do not modify \
+             any other repository file."
             "spec-dev-tool transition <doc-path> proposed";
           check_before long_top.stdout "COMMANDS" "VALUES";
           check_before long_top.stdout "VALUES" "EXIT STATUS";
@@ -1573,8 +1808,8 @@ let () =
                   "Create an exploring agent document";
                   "spec-dev-tool create <class> <doc-name>";
                   "Ask the user to answer every question in the document.";
-                  "Do not implement a document while its lifecycle is \
-                   exploring.";
+                  "While creating or editing an exploring document, do not \
+                   modify any other repository file.";
                   "<doc-name> must be lowercase kebab-case.";
                   "spec-dev-tool check <created-path>";
                 ] );
@@ -1624,8 +1859,8 @@ let () =
                   "exploring   -> rejected";
                   "An exploring document may transition only after the user \
                    has answered every question.";
-                  "Do not implement a document while its lifecycle is \
-                   exploring.";
+                  "While creating or editing an exploring document, do not \
+                   modify any other repository file.";
                   "proposed    -> implemented";
                   "proposed    -> rejected";
                   "implemented -> archived";

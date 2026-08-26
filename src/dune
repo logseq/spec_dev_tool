@@ -1,4 +1,4 @@
 (library
  (name spec_dev_tool)
- (modules agent_doc)
+ (modules agent_doc simplification_guide_overlay)
  (libraries unix))

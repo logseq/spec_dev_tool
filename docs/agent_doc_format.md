@@ -27,7 +27,7 @@ Choose exactly one lifecycle.
 
 | Lifecycle | Meaning | Maintenance policy |
 | --- | --- | --- |
-| `exploring` | A potential decision is being shaped and requires user answers before it can advance. | Refine the possible proposal, keep its final `Questions` section synchronized with the questions for the user, and do not implement it. |
+| `exploring` | A potential decision is being shaped and requires user answers before it can advance. | Create or refine only the exploring document, keep its final `Questions` section synchronized with the questions for the user, and do not change any other repository file. |
 | `proposed` | A design is under consideration and has not been implemented. | Update it as the proposal, alternatives, acceptance criteria, or known risks change. |
 | `implemented` | The decision has been implemented and describes the current system. | Keep it synchronized with changes to actual paths, names, defaults, behavior, and other implementation facts. |
 | `rejected` | The proposal was considered and deliberately declined. | Preserve the proposal and the reason for rejecting it so the same path is not reconsidered without new evidence. |
@@ -45,8 +45,9 @@ implemented -> archived
 
 Every new document starts as `exploring`. The agent must ask the user to answer
 every question in the document and wait for the answers. The agent must not
-invent or infer user answers, transition the document, or implement its
-decision while it remains `exploring`.
+invent or infer user answers or transition the document while it remains
+`exploring`. While creating or editing an exploring document, the agent must
+not create, modify, move, or remove any other repository file.
 
 After the user answers every question, the agent may transition the document to
 `proposed` or `rejected`. For `exploring -> proposed`, incorporate the user's
@@ -107,7 +108,8 @@ have its own document.
   relevant to the decision.
 - Split independently useful decisions into separate documents and link them.
 - For an exploring document, keep `Questions` as its final level-two section.
-- Do not implement a decision documented under `exploring`.
+- While creating or editing an exploring document, do not create, modify, move,
+  or remove any other repository file.
 
 ## Exploring document
 
@@ -115,8 +117,10 @@ Use this format while user answers are still required before a decision can
 become a formal proposal or be rejected. `Questions` is required, must contain
 content, and must be the final level-two section. After preparing and checking
 the document, the agent must ask the user to answer every question and stop.
-Implementation and lifecycle transitions are prohibited until the user has
-answered them.
+Changes to every other repository file and lifecycle transitions are
+prohibited while the document remains `exploring`. After the user answers every
+question, incorporate the answers and transition the document before changing
+another repository file.
 
 ```markdown
 # <Decision title>

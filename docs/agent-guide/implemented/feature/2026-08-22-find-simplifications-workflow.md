@@ -19,7 +19,7 @@ spec-dev-tool guide find-simplifications
 spec-dev-tool guide find-simplifications --help
 ```
 
-The `guide` namespace distinguishes agent workflows from commands that directly inspect or mutate repository state and leaves room for additional workflow topics. `guide find-simplifications` resolves the current Git worktree with the existing project-root mechanism, treats that worktree as the target repository, and writes no files. Its output explains the audit stages, evidence bar, candidate dispositions, document-writing protocol, and completion report.
+The `guide` namespace distinguishes agent workflows from commands that perform repository implementation work and leaves room for additional workflow topics. `guide find-simplifications` resolves the current Git worktree with the existing project-root mechanism, treats that worktree as the target repository, prepares the fixed repository rules overlay, and then emits the audit workflow. Its output explains the audit stages, evidence bar, candidate dispositions, document-writing protocol, repository customization, and completion report.
 
 The command has no `--scope` option. Audit scope comes from the user's natural-language request and may name paths, subsystems, symbols, behaviors, Git changes, priorities, or exclusions. The guide requires the agent to restate its interpreted scope before surveying and in the completion report. If the request gives no narrower scope, the current target worktree is the scope.
 
@@ -34,6 +34,10 @@ The workflow begins at the Git project root resolved for the invocation. It inst
 5. The production entry points and build or package metadata needed to classify consumers.
 
 Target-repository instructions are authoritative for protected seams, supported platforms, public compatibility, generated code, dependency policy, and required validation. The workflow contains no built-in assumptions about package names, source directories, programming languages, frameworks, or whether tests define the intended behavior.
+
+The root-level `.spec-dev-tool/guides/find-simplifications.md` file supplements this generic method with repository-specific operational rules. A missing file is exclusively created from the fixed headings-only template together with its parent directories. Every normal invocation requires a readable regular file, rejects symbolic links and other file kinds, validates the exact level-one and level-two heading schema, and inlines the complete content between stable delimiters. Existing valid content is never normalized or rewritten. The overlay is applied before corpus classification and candidate selection, while applicable nested `AGENTS.md` files continue to constrain work in their normal directory scopes.
+
+Repository customization cannot change lifecycle or class invariants, authorize implementation during discovery, or classify observable behavior changes as simplifications. If applicable instructions, overlay rules, or implemented decisions conflict, the agent reports the exact conflict instead of silently selecting or weakening a rule.
 
 Implemented documents are evidence of intentional current design, not an unconditional veto. A candidate that conflicts with one must identify the new evidence and explain why the recorded trade-off should be reconsidered. Rejected documents prevent repeatedly proposing an already-rejected path unless the audit finds materially new evidence. Existing exploring or proposed documents own overlapping work; the agent refines the existing document instead of creating a duplicate.
 
@@ -100,7 +104,9 @@ Small mechanical cleanups are not automatically written as inline TODO comments 
 
 ## Command output and completion report
 
-`guide find-simplifications` output is stable plain text organized with the same agent-oriented sections used by other command help: `PURPOSE`, `WHEN TO USE`, `WORKFLOW`, `EVIDENCE`, `OUTPUT`, and `NEXT STEP`. Normal output goes to stdout and exits with status `0`. Failure to resolve the Git worktree writes the existing project-root error to stderr and exits with status `1`. Extra arguments, unknown guide topics, or unsupported options are usage errors and exit with status `2`. Guide-specific usage errors direct the agent to `spec-dev-tool guide --help`.
+`guide find-simplifications` output is stable plain text organized with the same agent-oriented sections used by other command help: `PURPOSE`, `WHEN TO USE`, `WORKFLOW`, `EVIDENCE`, `OUTPUT`, `REPOSITORY CUSTOMIZATION`, and `NEXT STEP`. The customization section reports the canonical project-relative source path and whether this invocation created the template, then includes the complete overlay between stable begin and end delimiters. Normal output goes to stdout and exits with status `0`. Failure to resolve the Git worktree or prepare the overlay writes a specific error to stderr, emits no partial guide, and exits with status `1`. Extra arguments, unknown guide topics, or unsupported options are usage errors and exit with status `2`. Guide-specific usage errors direct the agent to `spec-dev-tool guide --help`.
+
+`spec-dev-tool guide find-simplifications --help` and `-h` describe overlay creation, validation, and inlining without resolving Git or accessing the filesystem.
 
 The guide requires the agent's final audit report to state:
 
@@ -117,7 +123,7 @@ An audit that finds no strong candidate is successful. It reports representative
 
 The guide is a discovery entry point, not a second document lifecycle. It reuses Git-root resolution, lifecycle discovery, `create simplification`, `check`, and the exploring user checkpoint. The top-level `AGENT WORKFLOW` includes `guide find-simplifications` before `create` as an optional path when no concrete decision is known. The existing `create` command remains the direct path when the user already knows the simplification to document.
 
-The `guide` command itself does not install repository files, invoke an LLM, spawn subagents, run arbitrary repository commands, edit agent documents, or implement code. The agent following the guide may create or refine exploring documents when candidate evidence warrants them. Parallel agent work may be used when the calling environment supports it and the user requests breadth, but concurrency is an execution choice rather than part of the CLI contract.
+The `guide` command itself does not invoke an LLM, spawn subagents, run arbitrary repository commands, edit agent documents, transition lifecycle state, or implement code. Its only write is the initial creation of the missing repository overlay and parent directories. The agent following the guide may create or refine exploring documents when candidate evidence warrants them. Parallel agent work may be used when the calling environment supports it and the user requests breadth, but concurrency is an execution choice rather than part of the CLI contract.
 
 ## Verified behavior
 
@@ -128,17 +134,21 @@ The `guide` command itself does not install repository files, invoke an LLM, spa
 - Behavior-changing ideas are rejected as simplifications and assigned the `reclassify` disposition when they remain valuable.
 - Durable candidates use one valid exploring simplification document, while overlapping active documents use the `merge` disposition.
 - The workflow performs no implementation or lifecycle transition and ends by presenting all exploring-document questions to the user.
-- The command writes no repository files. End-to-end tests compare the worktree before and after successful and failed invocations.
+- The first successful invocation exclusively creates the fixed headings-only repository overlay when missing; repeated invocations preserve existing content.
+- Every invocation validates the exact overlay heading schema and inlines valid content with its canonical path and creation status before `NEXT STEP`.
+- Invalid, unreadable, symbolic-link, and non-regular overlays fail without partial stdout or unrelated worktree changes.
+- Concurrent invocations never overwrite one another, and exactly one reports creating the fixed overlay.
+- Topic help remains read-only and independent of Git and repository files.
 - Structured scope options are rejected. The guide requires the agent to restate the natural-language scope and exclusions.
 - A zero-candidate audit succeeds by reporting representative rejected candidates instead of creating a speculative document.
 - Rejected, local, and reclassified candidates remain in the conversation report rather than a persistent audit artifact.
-- End-to-end tests cover help, nested Git-root resolution, repository-root failure, invalid arguments and options, stdout and stderr behavior, exit statuses, stable output, and the no-write guarantee.
+- End-to-end tests cover help isolation, template creation, repeated and concurrent invocation, valid and invalid schemas, exact inlining, nested Git-root resolution, repository-root and filesystem failures, invalid arguments and options, stdout and stderr behavior, exit statuses, and scoped writes.
 
 ## Alternatives considered
 
 ### Use a direct top-level command
 
-The workflow could use `spec-dev-tool find-simplifications`. That form is shorter and matches the user's goal, but it can imply that the OCaml binary performs semantic analysis and would add each future agent workflow as another top-level command. The `guide` namespace makes the read-only instructional behavior explicit and provides one location for future workflow topics.
+The workflow could use `spec-dev-tool find-simplifications`. That form is shorter and matches the user's goal, but it can imply that the OCaml binary performs semantic analysis and would add each future agent workflow as another top-level command. The `guide` namespace makes the instructional behavior explicit and provides one location for future workflow topics.
 
 ### Install a repository-local agent skill
 
