@@ -8,6 +8,7 @@ AGENT WORKFLOW
 
   Discover repository simplification candidates before a decision is known:
     spec-dev-tool guide find-simplifications
+    spec-dev-tool guide find-test-simplifications
 
   Start a decision before implementation:
     spec-dev-tool create <class> <doc-name>
@@ -66,19 +67,51 @@ WHEN TO USE
 
 USAGE
   spec-dev-tool guide find-simplifications
+  spec-dev-tool guide find-test-simplifications
 
 TOPICS
   find-simplifications  Audit the current Git worktree for evidence-backed,
                         behavior-preserving simplification candidates.
+  find-test-simplifications
+                        Audit tests for evidence-backed simplifications while
+                        preserving effective behavioral guarantees.
 
 OUTPUT
-  Prints the selected guide. The find-simplifications topic prepares,
-  validates, and inlines repository rules from
+  Prints the selected guide. Both topics prepare shared repository rules from
   .spec-dev-tool/guides/find-simplifications.md. It creates only the missing
-  headings-only rules template and its parent directories.
+  headings-only rules template and its parent directories, validates the fixed
+  schema, and inlines the complete rules.
 
 NEXT STEP
   Run the topic from the repository to audit, then follow its WORKFLOW.
+|}
+
+let find_test_simplifications_help =
+  {|PURPOSE
+  Print the repository-aware test simplification audit workflow.
+
+WHEN TO USE
+  Use before auditing tests and test-only support machinery for redundant or
+  implementation-pinning coverage.
+
+USAGE
+  spec-dev-tool guide find-test-simplifications
+
+BEHAVIOR
+  Resolves the current Git worktree and uses the shared root-level file:
+    .spec-dev-tool/guides/find-simplifications.md
+
+  If the file is missing, the command creates its parent directories and a
+  headings-only template without overwriting a concurrent file. Every normal
+  invocation validates the fixed heading schema and inlines the complete file
+  after the test-specific workflow. Existing valid files are never rewritten.
+
+  This help form is read-only: it does not resolve Git, inspect files, or
+  create the template.
+
+NEXT STEP
+  Run the command from the repository to audit, then follow its WORKFLOW and
+  REPOSITORY CUSTOMIZATION sections.
 |}
 
 let find_simplifications_help =
@@ -108,15 +141,15 @@ NEXT STEP
   REPOSITORY CUSTOMIZATION sections.
 |}
 
+let overlay_newline (overlay : Spec_dev_tool.Simplification_guide_overlay.t) =
+  if
+    String.length overlay.content > 0
+    && overlay.content.[String.length overlay.content - 1] = '\n'
+  then ""
+  else "\n"
+
 let find_simplifications_guide root
     (overlay : Spec_dev_tool.Simplification_guide_overlay.t) =
-  let overlay_newline =
-    if
-      String.length overlay.content > 0
-      && overlay.content.[String.length overlay.content - 1] = '\n'
-    then ""
-    else "\n"
-  in
   Printf.sprintf
     {|PURPOSE
   Guide an agent through a semantic audit for behavior-preserving
@@ -288,7 +321,195 @@ NEXT STEP
 |}
     root Spec_dev_tool.Simplification_guide_overlay.relative_path
     (if overlay.created then "yes" else "no")
-    overlay.content overlay_newline
+    overlay.content (overlay_newline overlay)
+
+let find_test_simplifications_guide root
+    (overlay : Spec_dev_tool.Simplification_guide_overlay.t) =
+  Printf.sprintf
+    {|PURPOSE
+  Guide an agent through an evidence-based audit of tests and test-only
+  support machinery in this target Git worktree:
+    %s
+
+  The command prepares and prints this guide. It does not scan repository code,
+  invoke an LLM, delete tests, modify production code, run repository checks,
+  transition agent documents, or implement candidates. Its only repository
+  write is exclusive creation of a missing shared simplification-rules
+  template and its parent directories. The agent following the guide performs
+  the audit and may edit exploring documents only when the surrounding user
+  request authorizes that work.
+
+WHEN TO USE
+  Use when the user asks to find test simplifications but has not already named
+  a concrete decision. The audit seeks tests that no longer protect useful
+  behavior and test-only support surfaces that become unused, while preserving
+  every effective behavioral guarantee and supported public contract.
+
+  Interpret scope from the user's natural-language request; there is no
+  structured scope option. Restate requested paths, subsystems, changes,
+  priorities, and exclusions before surveying. If the user supplied no
+  narrower scope, audit the complete target worktree shown above.
+
+WORKFLOW
+  1. Establish the test contract by reading target-repository context.
+     - Read every applicable AGENTS.md and other repository-owned agent
+       instruction before judging a test.
+     - Apply the inlined repository customization in this output. It may make
+       the evidence bar stricter, but it cannot change lifecycle or class
+       invariants, authorize implementation during discovery, or turn reduced
+       validation into behavior preservation.
+     - Read docs/agent_doc_format.md when present. Otherwise preserve one
+       primary decision per document, use the required exploring sections,
+       keep Questions final, and never implement an exploring decision.
+     - Discover and read relevant decisions with list-exploring,
+       list-proposed, list-implemented, list-rejected, and list-archived.
+       Active documents own overlapping work; implemented and rejected
+       documents are evidence of intent.
+     - Read testing policy, architecture, compatibility and security promises,
+       build metadata, supported platforms, production entry points, public
+       interfaces, known regressions, trust boundaries, generated or vendored
+       policy, test helpers, and required validation commands.
+     - Classify unit, integration, end-to-end, property, snapshot, golden,
+       compile-time, static-policy, and other tests by their actual repository
+       role. No test style has universal value or universal permission for
+       removal.
+
+  2. Survey the complete requested scope before selecting final candidates.
+     Inspect test cases together with their fixtures, snapshots, helpers,
+     mocks, generated artifacts, and harness code. Candidate patterns include,
+     but are not limited to:
+     - one-time implementation-scaffolding tests that no longer protect a
+       distinct supported behavior or regression;
+     - tests that read source files or generated code and compare text,
+       fragments, regular expressions, declaration order, symbol names, or
+       call shape only to pin an implementation detail;
+     - repeated cases that use the same path without adding a boundary, state
+       transition, failure mode, platform, or integration distinction;
+     - parameterized inputs that do not represent distinct equivalence classes
+       or failure boundaries;
+     - obsolete or unreachable behavior and test-only support machinery used
+       only by those tests;
+     - guarantees owned more directly by type checking, schema validation,
+       compiler checks, or a stronger test at the appropriate boundary;
+     - tests of an external dependency's implementation that exercise no
+       repository-owned adaptation or policy; and
+     - test-only abstractions whose cost exceeds the distinct coverage they
+       enable.
+
+     These are discovery prompts, not deletion rules. A test is not removable
+     merely because it is old, narrow, textual, repetitive, or associated with
+     a defect that has been fixed.
+
+  3. Prove or reject every candidate.
+     Record the exact test or supporting surface proposed for removal; the
+     supported behavior, regression, policy, or implementation detail it
+     protects; every retained test or static guarantee with overlapping
+     coverage and the execution path by which it applies; and whether the
+     candidate is unique coverage for a boundary, failure mode, platform,
+     security property, compatibility promise, externally visible text,
+     serialized form, or repository policy.
+
+     Explain why removal preserves product behavior rather than hiding a
+     failure or merely reducing validation cost. Record the complete net
+     deletion and verification commands. Include fixtures, snapshots, helpers,
+     mocks, generated artifacts, and harness code only after evidence proves
+     that production code, other retained tests, documentation tooling, and
+     external consumers do not use them and that no retained consumer remains.
+
+     Source-text assertions require special scrutiny. Private implementation
+     shape without behavioral effect is a strong candidate. A supported CLI
+     response, protocol payload, serialization format, generated artifact,
+     diagnostic, documentation example, security boundary, compatibility
+     promise, regression, or repository policy remains protected unless
+     independent evidence proves it obsolete or redundantly covered.
+
+     Reject a candidate when equivalent retained coverage is not demonstrated
+     and the asserted behavior is not proven unsupported. Runtime, flakiness,
+     or implementation difficulty does not justify deleting a test that owns a
+     real contract; those concerns require a separate fix or testing decision.
+
+  4. Select one disposition for every investigated candidate.
+     - document: evidence supports one durable test simplification decision.
+     - merge: an active exploring or proposed document already owns it.
+     - local: deletion is small, mechanical, and needs no durable decision.
+     - reject: the test protects unique or insufficiently understood value.
+     - reclassify: the idea changes behavior, architecture, coverage strategy,
+       validation method, or accepted risk instead of removing redundancy.
+
+     Only document creates an agent document. Report merge, local, reject, and
+     reclassify dispositions without silently editing the repository. A zero-
+     candidate audit succeeds when the report includes representative rejected
+     candidates and the evidence that retained them. Do not implement any
+     candidate during discovery.
+
+  5. Write and validate durable candidate documents.
+     Create one exploring document per durable decision. Include exact
+     removable tests and support surfaces, their apparent contract, consumer
+     and overlap evidence, retained coverage, the behavior-preserving end
+     state, validation commands, and the strongest reason to keep the current
+     test.
+
+     Select the class from the primary decision:
+     - Run spec-dev-tool create simplification <topic-name> when redundant
+       tests and exclusively used support code disappear while effective
+       guarantees and validation obligations remain unchanged.
+     - Run spec-dev-tool create testing <topic-name> when the decision changes
+       coverage strategy, test level, validation method, or accepted risk.
+     - Use another class for a primary product, architecture, or process
+       decision. If that class is outside user-authorized scope, reclassify and
+       report it instead of creating a document.
+
+     Run spec-dev-tool check <created-path> for every created or updated
+     document. Ask the user every question in each final Questions section and
+     stop. Do not transition a document or implement a candidate as part of
+     discovery.
+
+EVIDENCE
+  Repository instructions and supported contracts are authoritative. Call-path
+  reading and executable repository evidence outrank names, age, line counts,
+  superficial duplication, coverage percentages, and generic testing rules.
+  Overlap requires the same behavior through a reliable retained path, not
+  merely a second assertion near the same code.
+
+  Supporting assets qualify for removal only after their complete consumer set
+  is traced. Unknown support status is a question, not permission to discard a
+  contract. Strong evidence proves either equivalent retained protection or
+  that the asserted behavior is not supported.
+
+OUTPUT
+  Finish with one audit report containing:
+  - the target repository and restated user-requested scope;
+  - areas and test roles surveyed, plus meaningful exclusions;
+  - every investigated candidate and its disposition with evidence;
+  - exact net deletion for supported candidates;
+  - paths of created or updated exploring documents;
+  - checks run and their results; and
+  - all questions the user must answer before transition or implementation.
+
+  A well-supported zero-candidate audit is successful. Include representative rejected candidates
+  and evidence; never create an empty or speculative document.
+
+REPOSITORY CUSTOMIZATION
+  Source: %s
+  Template created: %s
+  The complete shared content below supplements this test-specific workflow.
+  Interpret applicable corpus, protected-surface, priority, evidence, and
+  validation rules for tests without inventing test-specific headings. If a
+  rule conflicts with AGENTS.md, an implemented decision, or a lifecycle or
+  class invariant, stop and report the exact conflict.
+
+BEGIN REPOSITORY-SPECIFIC SIMPLIFICATION RULES
+%s%sEND REPOSITORY-SPECIFIC SIMPLIFICATION RULES
+
+NEXT STEP
+  Present all Questions from every created or updated exploring document to the
+  user, then stop. Do not implement any candidate. Do not transition any
+  document. Wait for all answers before later proposal, rejection, or
+  implementation work.
+|}
+    root Spec_dev_tool.Simplification_guide_overlay.relative_path
+    (if overlay.created then "yes" else "no")
+    overlay.content (overlay_newline overlay)
 
 let create_help =
   {|PURPOSE
@@ -545,6 +766,16 @@ let command_help = function
   | "transition" -> Some transition_help
   | _ -> None
 
+let print_repository_guide render =
+  with_project_root (fun root ->
+      match Spec_dev_tool.Simplification_guide_overlay.prepare root with
+      | Ok overlay ->
+          print_help
+            (render (Spec_dev_tool.Agent_doc.project_root_path root) overlay)
+      | Error message ->
+          prerr_endline message;
+          1)
+
 let run = function
   | [ _; "--help" ] | [ _; "-h" ] -> print_help top_help
   | [ _; command; ("--help" | "-h") ] -> (
@@ -554,17 +785,12 @@ let run = function
           usage_error Top_level (Printf.sprintf "unknown command: %s" command))
   | [ _; "guide"; "find-simplifications"; ("--help" | "-h") ] ->
       print_help find_simplifications_help
+  | [ _; "guide"; "find-test-simplifications"; ("--help" | "-h") ] ->
+      print_help find_test_simplifications_help
   | [ _; "guide"; "find-simplifications" ] ->
-      with_project_root (fun root ->
-          match Spec_dev_tool.Simplification_guide_overlay.prepare root with
-          | Ok overlay ->
-              print_help
-                (find_simplifications_guide
-                   (Spec_dev_tool.Agent_doc.project_root_path root)
-                   overlay)
-          | Error message ->
-              prerr_endline message;
-              1)
+      print_repository_guide find_simplifications_guide
+  | [ _; "guide"; "find-test-simplifications" ] ->
+      print_repository_guide find_test_simplifications_guide
   | [ _; "check"; "--all" ] -> check_all ()
   | [ _; "check"; path ] when not (begins_with_hyphen path) -> check path
   | [ _; "create"; document_class; topic ] -> create document_class topic

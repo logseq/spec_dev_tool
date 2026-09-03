@@ -1503,6 +1503,145 @@ let () =
           check_before first.stdout "Prove or reject every candidate"
             "Select one disposition"));
 
+  test
+    "test simplification guide creates the shared overlay and emits the full \
+     audit method" (fun () ->
+      with_temp_directory (fun root ->
+          let nested = Filename.concat root "test/nested" in
+          ensure_directory nested;
+          let result =
+            run ~cwd:nested [ "guide"; "find-test-simplifications" ]
+          in
+          check_success result;
+          check (result.stderr = "")
+            "test simplification guide wrote successful output to stderr";
+          check_path_content root simplification_overlay_path
+            simplification_overlay_template;
+          check
+            (contains result.stdout root)
+            "test simplification guide did not resolve the Git root";
+          check
+            (contains result.stdout
+               "Source: .spec-dev-tool/guides/find-simplifications.md")
+            "test simplification guide omitted the shared overlay path";
+          check
+            (contains result.stdout "Template created: yes")
+            "test simplification guide did not report overlay creation";
+          [
+            "PURPOSE";
+            "WHEN TO USE";
+            "WORKFLOW";
+            "EVIDENCE";
+            "OUTPUT";
+            "REPOSITORY CUSTOMIZATION";
+            "BEGIN REPOSITORY-SPECIFIC SIMPLIFICATION RULES";
+            "END REPOSITORY-SPECIFIC SIMPLIFICATION RULES";
+            "NEXT STEP";
+            "AGENTS.md";
+            "docs/agent_doc_format.md";
+            "list-exploring";
+            "list-proposed";
+            "list-implemented";
+            "list-rejected";
+            "list-archived";
+            "testing policy";
+            "production entry points";
+            "unit";
+            "integration";
+            "end-to-end";
+            "property";
+            "snapshot";
+            "golden";
+            "compile-time";
+            "static-policy";
+            "one-time";
+            "source files";
+            "implementation detail";
+            "equivalence classes";
+            "obsolete";
+            "type checking";
+            "schema validation";
+            "external dependency";
+            "fixtures";
+            "snapshots";
+            "helpers";
+            "mocks";
+            "generated artifacts";
+            "harness";
+            "retained consumer";
+            "supported behavior";
+            "regression";
+            "boundary";
+            "failure mode";
+            "platform";
+            "security";
+            "compatibility";
+            "externally visible text";
+            "serialized";
+            "repository policy";
+            "net deletion";
+            "verification commands";
+            "document";
+            "merge";
+            "local";
+            "reject";
+            "reclassify";
+            "zero";
+            "representative rejected candidates";
+            "spec-dev-tool create simplification <topic-name>";
+            "spec-dev-tool create testing <topic-name>";
+            "spec-dev-tool check <created-path>";
+            "Questions";
+            "Do not implement";
+            "Do not transition";
+          ]
+          |> List.iter (fun expected ->
+              check
+                (contains result.stdout expected)
+                ("test simplification guide is missing: " ^ expected));
+          check_before result.stdout "PURPOSE" "WHEN TO USE";
+          check_before result.stdout "WHEN TO USE" "WORKFLOW";
+          check_before result.stdout "WORKFLOW" "EVIDENCE";
+          check_before result.stdout "EVIDENCE" "OUTPUT";
+          check_before result.stdout "OUTPUT" "REPOSITORY CUSTOMIZATION";
+          check_before result.stdout "REPOSITORY CUSTOMIZATION" "NEXT STEP";
+          check_before result.stdout "Establish the test contract"
+            "Survey the complete requested scope";
+          check_before result.stdout "Survey the complete requested scope"
+            "Prove or reject every candidate";
+          check_before result.stdout "Prove or reject every candidate"
+            "Select one disposition"));
+
+  test
+    "test simplification guide deterministically inlines the existing shared \
+     overlay without rewriting it" (fun () ->
+      with_temp_directory (fun root ->
+          write_file
+            (Filename.concat root simplification_overlay_path)
+            detailed_simplification_overlay;
+          let before = snapshot_worktree root in
+          let first = run ~cwd:root [ "guide"; "find-test-simplifications" ] in
+          let second = run ~cwd:root [ "guide"; "find-test-simplifications" ] in
+          List.iter check_success [ first; second ];
+          check
+            (first.stdout = second.stdout
+            && first.stderr = "" && second.stderr = "")
+            "test simplification guide output was not deterministic";
+          let expected_block =
+            "BEGIN REPOSITORY-SPECIFIC SIMPLIFICATION RULES\n"
+            ^ detailed_simplification_overlay
+            ^ "END REPOSITORY-SPECIFIC SIMPLIFICATION RULES\n"
+          in
+          check
+            (contains first.stdout expected_block)
+            "test simplification guide did not inline the complete overlay";
+          check
+            (count_occurrences first.stdout detailed_simplification_overlay = 1)
+            "test simplification guide did not inline the overlay exactly once";
+          check
+            (snapshot_worktree root = before)
+            "test simplification guide rewrote the existing overlay"));
+
   test "guide inlines an existing valid overlay exactly without rewriting it"
     (fun () ->
       with_temp_directory (fun root ->
@@ -1561,20 +1700,24 @@ let () =
       in
       List.iter
         (fun (name, content) ->
-          with_temp_directory (fun root ->
-              write_file
-                (Filename.concat root simplification_overlay_path)
-                content;
-              let before = snapshot_worktree root in
-              let result = run ~cwd:root [ "guide"; "find-simplifications" ] in
-              check_failure result "Invalid repository simplification rules";
-              check
-                (contains result.stderr name)
-                (Printf.sprintf "missing %s diagnostic: %S" name result.stderr);
-              check (result.stdout = "") "invalid overlay emitted partial guide";
-              check
-                (snapshot_worktree root = before)
-                "invalid overlay was modified"))
+          [ "find-simplifications"; "find-test-simplifications" ]
+          |> List.iter (fun topic ->
+              with_temp_directory (fun root ->
+                  write_file
+                    (Filename.concat root simplification_overlay_path)
+                    content;
+                  let before = snapshot_worktree root in
+                  let result = run ~cwd:root [ "guide"; topic ] in
+                  check_failure result "Invalid repository simplification rules";
+                  check
+                    (contains result.stderr name)
+                    (Printf.sprintf "missing %s diagnostic: %S" name
+                       result.stderr);
+                  check (result.stdout = "")
+                    "invalid overlay emitted partial guide";
+                  check
+                    (snapshot_worktree root = before)
+                    "invalid overlay was modified")))
         invalid_cases);
 
   test "guide rejects unreadable, symbolic-link, and non-regular overlays"
@@ -1605,9 +1748,13 @@ let () =
 
   test "concurrent guide invocations exclusively create one overlay" (fun () ->
       with_temp_directory (fun root ->
-          let results =
-            run_parallel ~cwd:root [ "guide"; "find-simplifications" ] 8
+          let general_results =
+            run_parallel ~cwd:root [ "guide"; "find-simplifications" ] 4
           in
+          let test_results =
+            run_parallel ~cwd:root [ "guide"; "find-test-simplifications" ] 4
+          in
+          let results = general_results @ test_results in
           List.iter check_success results;
           check
             (List.for_all (fun result -> result.stderr = "") results)
@@ -1627,16 +1774,22 @@ let () =
 
   test "guide creation failures emit no partial output or unrelated writes"
     (fun () ->
-      with_temp_directory (fun root ->
-          write_file (Filename.concat root "tracked-input.txt") "unchanged\n";
-          write_file (Filename.concat root ".spec-dev-tool") "occupied\n";
-          let before = snapshot_worktree root in
-          let result = run ~cwd:root [ "guide"; "find-simplifications" ] in
-          check_failure result "Cannot create repository simplification rules";
-          check (result.stdout = "") "creation failure emitted partial guide";
-          check
-            (snapshot_worktree root = before)
-            "creation failure modified unrelated worktree paths"));
+      [ "find-simplifications"; "find-test-simplifications" ]
+      |> List.iter (fun topic ->
+          with_temp_directory (fun root ->
+              write_file
+                (Filename.concat root "tracked-input.txt")
+                "unchanged\n";
+              write_file (Filename.concat root ".spec-dev-tool") "occupied\n";
+              let before = snapshot_worktree root in
+              let result = run ~cwd:root [ "guide"; topic ] in
+              check_failure result
+                "Cannot create repository simplification rules";
+              check (result.stdout = "")
+                "creation failure emitted partial guide";
+              check
+                (snapshot_worktree root = before)
+                "creation failure modified unrelated worktree paths")));
 
   test "guide namespace help is discoverable and independent of Git" (fun () ->
       with_non_git_temp_directory (fun root ->
@@ -1656,8 +1809,10 @@ let () =
             "WHEN TO USE";
             "USAGE";
             "spec-dev-tool guide find-simplifications";
+            "spec-dev-tool guide find-test-simplifications";
             "TOPICS";
             "find-simplifications";
+            "find-test-simplifications";
             "OUTPUT";
             "creates";
             ".spec-dev-tool/guides/find-simplifications.md";
@@ -1671,6 +1826,48 @@ let () =
                 ("guide namespace help is missing: " ^ expected));
           check_path_absent root "git-was-run";
           check_path_absent root "docs";
+          check_path_absent root ".spec-dev-tool"));
+
+  test
+    "find-test-simplifications topic help is read-only and independent of Git"
+    (fun () ->
+      with_non_git_temp_directory (fun root ->
+          let fake_bin = Filename.concat root "bin" in
+          Unix.mkdir fake_bin 0o755;
+          let fake_git = Filename.concat fake_bin "git" in
+          write_file fake_git "#!/bin/sh\n: > git-was-run\nexit 1\n";
+          Unix.chmod fake_git 0o755;
+          let long =
+            run ~path:fake_bin ~cwd:root
+              [ "guide"; "find-test-simplifications"; "--help" ]
+          in
+          let short =
+            run ~path:fake_bin ~cwd:root
+              [ "guide"; "find-test-simplifications"; "-h" ]
+          in
+          List.iter check_success [ long; short ];
+          check
+            (long.stdout = short.stdout && long.stderr = "")
+            "test simplification topic help aliases differ or wrote to stderr";
+          [
+            "PURPOSE";
+            "WHEN TO USE";
+            "USAGE";
+            "spec-dev-tool guide find-test-simplifications";
+            ".spec-dev-tool/guides/find-simplifications.md";
+            "shared";
+            "missing";
+            "creates";
+            "validates";
+            "inlines";
+            "read-only";
+            "NEXT STEP";
+          ]
+          |> List.iter (fun expected ->
+              check
+                (contains long.stdout expected)
+                ("test simplification topic help is missing: " ^ expected));
+          check_path_absent root "git-was-run";
           check_path_absent root ".spec-dev-tool"));
 
   test "find-simplifications topic help is read-only and independent of Git"
@@ -1716,12 +1913,14 @@ let () =
       with_non_git_temp_directory (fun root ->
           write_file (Filename.concat root "existing.txt") "unchanged\n";
           let before = snapshot_worktree root in
-          let result = run ~cwd:root [ "guide"; "find-simplifications" ] in
-          check_failure result "Cannot locate project root";
-          check (result.stdout = "") "root failure wrote to stdout";
-          check
-            (not (contains result.stderr "Try: spec-dev-tool"))
-            "root failure included usage guidance";
+          [ "find-simplifications"; "find-test-simplifications" ]
+          |> List.iter (fun topic ->
+              let result = run ~cwd:root [ "guide"; topic ] in
+              check_failure result "Cannot locate project root";
+              check (result.stdout = "") "root failure wrote to stdout";
+              check
+                (not (contains result.stderr "Try: spec-dev-tool"))
+                "root failure included usage guidance");
           check
             (snapshot_worktree root = before)
             "root failure modified the worktree");
@@ -1738,6 +1937,9 @@ let () =
             [ "guide"; "find-simplifications"; "extra" ];
             [ "guide"; "find-simplifications"; "--scope"; "src" ];
             [ "guide"; "find-simplifications"; "--unknown" ];
+            [ "guide"; "find-test-simplifications"; "extra" ];
+            [ "guide"; "find-test-simplifications"; "--scope"; "test" ];
+            [ "guide"; "find-test-simplifications"; "--unknown" ];
           ]
           |> List.iter (fun arguments ->
               let result = run ~path:fake_bin ~cwd:root arguments in
@@ -1780,6 +1982,7 @@ let () =
             "list-archived";
             "guide";
             "spec-dev-tool guide find-simplifications";
+            "spec-dev-tool guide find-test-simplifications";
             "EXIT STATUS";
             "0  Command completed successfully.";
             "1  Document validation or filesystem operation failed.";

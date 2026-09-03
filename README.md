@@ -30,6 +30,8 @@ Simplification audits can define repository-specific operational rules at
 `.spec-dev-tool/guides/find-simplifications.md`. The first
 `spec-dev-tool guide find-simplifications` invocation creates a headings-only
 template when that file is missing; later invocations validate and inline it.
+`spec-dev-tool guide find-test-simplifications` uses the same repository rules
+to audit redundant or implementation-pinning tests and test-only support code.
 
 ## Development
 
