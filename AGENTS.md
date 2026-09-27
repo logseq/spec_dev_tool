@@ -3,3 +3,4 @@
 - `docs/agent_doc_format.md` 中描述了agent doc 的路径格式，内容格式，以及lifecycle，class分类
 - Use `spec-dev-tool` to manage agent decision documents. Run `spec-dev-tool --help` and follow its `AGENT WORKFLOW`.
 - For simplification audits, run `spec-dev-tool guide find-simplifications` and follow the emitted generic workflow and inlined repository customization.
+- Avoid O(n²) `List` patterns such as `List.concat` and repeated `List.append` on large sequences; when the project already depends on the `rrbvec` package, use `Rrbvec` vectors instead.
